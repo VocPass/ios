@@ -1,0 +1,28 @@
+{
+    "鶯歌工商": {
+        "api": "https://eschool.ykvs.ntpc.edu.tw",
+        "url": {
+            "login": "/auth/Online",
+            "logined": "/online/student/frames.asp",
+            "root": "/"
+        },
+        "login": {
+            "username": {
+                "name": "LoginName"
+            },
+            "password": {
+                "name": "PassString"
+            },
+            "captcha": {
+                "name": "ShCaptchaGenCode"
+            },
+            "captchaImage": {
+                "selector": "captcha-image",
+                "type": "class"
+            },
+            "button": {
+                "class": "loginBtnAdjust"
+            }
+        }
+    }
+}
