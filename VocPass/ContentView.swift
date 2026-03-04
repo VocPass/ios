@@ -45,6 +45,9 @@ struct ContentView: View {
                 schoolConfigManager.loadSchools()
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .schoolChanged)) { _ in
+            hasSelectedSchool = schoolConfigManager.hasSelectedSchool
+        }
     }
 }
 

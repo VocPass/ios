@@ -9,6 +9,10 @@ import SwiftUI
 
 @main
 struct YKVSApp: App {
+    init() {
+        SchoolConfigManager.shared.loadSchools()
+    }
+    
     var body: some Scene {
         WindowGroup {
             ContentView()

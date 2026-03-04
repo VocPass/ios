@@ -12,8 +12,14 @@ import Combine
 class APIService: ObservableObject {
     static let shared = APIService()
 
-    private let baseURL = "https://eschool.ykvs.ntpc.edu.tw/online/"
     private let weeksPerSemester = 18
+    
+    private var baseURL: String {
+        guard let selectedSchool = SchoolConfigManager.shared.selectedSchool else {
+            return "https://eschool.ykvs.ntpc.edu.tw/online/"
+        }
+        return selectedSchool.api + "/online/"
+    }
 
     @Published var cookies: [HTTPCookie] = []
     @Published var isLoggedIn = false
@@ -34,6 +40,12 @@ class APIService: ObservableObject {
 
     // MARK: - 網路請求
     private func request(url: String) async throws -> String {
+        // 檢查是否已選擇學校
+        guard SchoolConfigManager.shared.hasSelectedSchool else {
+            print("❌ [API] 未選擇學校")
+            throw APIError.noSchoolSelected
+        }
+        
         guard let requestURL = URL(string: url) else {
             print("❌ [API] Invalid URL: \(url)")
             throw URLError(.badURL)
@@ -268,6 +280,7 @@ enum APIError: LocalizedError {
     case sessionExpired
     case parseError
     case networkError
+    case noSchoolSelected
 
     var errorDescription: String? {
         switch self {
@@ -277,6 +290,8 @@ enum APIError: LocalizedError {
             return "資料解析錯誤"
         case .networkError:
             return "網路連線錯誤"
+        case .noSchoolSelected:
+            return "請先選擇學校"
         }
     }
 }
