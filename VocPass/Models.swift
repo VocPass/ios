@@ -157,6 +157,37 @@ struct SemesterInfo: Codable {
     let semester: String
 }
 
+// MARK: - 課表時間表
+
+struct PeriodTime: Codable, Equatable, Hashable {
+    let startTime: String
+    let endTime: String
+}
+
+struct TimetableEntry: Codable, Identifiable {
+    let id: UUID
+    let weekday: String
+    let period: String
+    let subject: String
+
+    init(weekday: String, period: String, subject: String) {
+        self.id = UUID()
+        self.weekday = weekday
+        self.period = period
+        self.subject = subject
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, weekday, period, subject
+    }
+}
+
+struct TimetableData: Codable {
+    var entries: [TimetableEntry]
+    var periodTimes: [String: PeriodTime]
+    var curriculum: [String: CourseInfo]
+}
+
 // MARK: - 科目缺曠統計
 struct SubjectAbsence: Identifiable, Codable {
     let id = UUID()

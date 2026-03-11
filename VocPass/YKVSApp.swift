@@ -11,6 +11,14 @@ import SwiftUI
 struct YKVSApp: App {
     init() {
         SchoolConfigManager.shared.loadSchools()
+        CacheService.shared.invalidateTimetableCacheIfNeeded()
+
+        if CacheService.shared.autoStartDynamicIsland,
+           let cachedTimetable = CacheService.shared.getCachedTimetable() {
+            Task { @MainActor in
+                DynamicIslandService.shared.setTimetable(cachedTimetable)
+            }
+        }
     }
     
     var body: some Scene {

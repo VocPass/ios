@@ -6,9 +6,11 @@
 //
 
 import SwiftUI
+import ActivityKit
 
 struct CurriculumView: View {
     @EnvironmentObject var apiService: APIService
+    @StateObject private var dynamicIsland = DynamicIslandService.shared
     @State private var curriculum: [String: CourseInfo] = [:]
     @State private var isLoading = true
     @State private var errorMessage: String?
@@ -51,6 +53,8 @@ struct CurriculumView: View {
         }
     }
 
+    // MARK: - 課表格線
+
     private var curriculumGrid: some View {
         VStack(spacing: 1) {
             // 標題行
@@ -71,16 +75,22 @@ struct CurriculumView: View {
             // 課表內容
             ForEach(periods, id: \.self) { period in
                 HStack(spacing: 1) {
-                    Text(period)
+                    Text(period == "早讀" ? "讀" : period)
                         .frame(width: 40, height: 60)
                         .background(Color(.systemGray6))
                         .font(.caption)
 
                     ForEach(weekdays, id: \.self) { weekday in
                         let subject = getSubject(weekday: weekday, period: period)
+                        let isNow   = isCurrentPeriod(weekday: weekday, period: period)
                         Text(subject)
                             .frame(maxWidth: .infinity, minHeight: 60)
-                            .background(subject.isEmpty ? Color(.systemBackground) : randomColor(for: subject).opacity(0.3))
+                            .background(
+                                isNow
+                                    ? Color.blue.opacity(0.25)
+                                    : (subject.isEmpty ? Color(.systemBackground) : randomColor(for: subject).opacity(0.2))
+                            )
+                            .overlay(isNow ? RoundedRectangle(cornerRadius: 2).stroke(Color.blue, lineWidth: 1.5) : nil)
                             .font(.caption2)
                             .lineLimit(2)
                             .multilineTextAlignment(.center)
@@ -92,6 +102,76 @@ struct CurriculumView: View {
         .cornerRadius(8)
     }
 
+    // MARK: - Dynamic Island 控制卡片
+
+    private var dynamicIslandCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Image(systemName: "clock.badge.fill")
+                    .foregroundStyle(.blue)
+                Text("即時動態")
+                    .font(.headline)
+                Spacer()
+                Button {
+                    if dynamicIsland.isActivityRunning {
+                        dynamicIsland.endActivity()
+                    } else {
+                        let name = CacheService.shared.savedClassName.isEmpty
+                            ? "我的課表"
+                            : CacheService.shared.savedClassName
+                        Task { await dynamicIsland.startActivity(className: name) }
+                    }
+                } label: {
+                    Label(
+                        dynamicIsland.isActivityRunning ? "停止" : "開始",
+                        systemImage: dynamicIsland.isActivityRunning ? "stop.fill" : "play.fill"
+                    )
+                    .font(.caption)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(dynamicIsland.isActivityRunning ? Color.red.opacity(0.15) : Color.blue.opacity(0.15))
+                    .foregroundStyle(dynamicIsland.isActivityRunning ? .red : .blue)
+                    .clipShape(Capsule())
+                }
+            }
+
+            Divider()
+
+            HStack(spacing: 16) {
+                infoBlock(
+                    title: "目前",
+                    value: dynamicIsland.currentSubject.isEmpty ? "下課中" : dynamicIsland.currentSubject,
+                    color: dynamicIsland.currentSubject.isEmpty ? .secondary : .blue
+                )
+                Divider().frame(height: 36)
+                infoBlock(
+                    title: "下一堂",
+                    value: dynamicIsland.nextSubject.isEmpty ? "今天結束" : dynamicIsland.nextSubject,
+                    color: dynamicIsland.nextSubject.isEmpty ? .secondary : .green
+                )
+            }
+        }
+        .padding(14)
+        .background(Color(.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+    }
+
+    private func infoBlock(title: String, value: String, color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.subheadline)
+                .fontWeight(.semibold)
+                .foregroundStyle(color)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // MARK: - 輔助
+
     private func getSubject(weekday: String, period: String) -> String {
         for (subject, info) in curriculum {
             for schedule in info.schedule {
@@ -101,6 +181,14 @@ struct CurriculumView: View {
             }
         }
         return ""
+    }
+
+    private func isCurrentPeriod(weekday: String, period: String) -> Bool {
+        guard dynamicIsland.isActivityRunning else { return false }
+        let state = dynamicIsland.makeContentState(at: Date())
+        let weekdayMap: [Int: String] = [1:"日",2:"一",3:"二",4:"三",5:"四",6:"五",7:"六"]
+        let today = weekdayMap[Calendar.current.component(.weekday, from: Date())] ?? ""
+        return weekday == today && period == state.currentPeriod && !state.currentPeriod.isEmpty
     }
 
     private func randomColor(for subject: String) -> Color {
@@ -114,9 +202,10 @@ struct CurriculumView: View {
         errorMessage = nil
 
         do {
-            let result = try await apiService.fetchCurriculum(forceRefresh: forceRefresh)
+            let timetable = try await apiService.fetchTimetableData(forceRefresh: forceRefresh)
             await MainActor.run {
-                self.curriculum = result
+                self.curriculum = timetable.curriculum
+                DynamicIslandService.shared.setTimetable(timetable)
                 self.isLoading = false
             }
         } catch {
@@ -132,3 +221,4 @@ struct CurriculumView: View {
     CurriculumView()
         .environmentObject(APIService.shared)
 }
+

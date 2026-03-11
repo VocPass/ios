@@ -105,8 +105,8 @@ class APIService: ObservableObject {
     }
 
     // MARK: - 課表
-    func fetchCurriculum(classNumber: String = "212", forceRefresh: Bool = false) async throws -> [String: CourseInfo] {
-        if !forceRefresh, let cached = CacheService.shared.getCachedCurriculum() {
+    func fetchTimetableData(classNumber: String = "212", forceRefresh: Bool = false) async throws -> TimetableData {
+        if !forceRefresh, let cached = CacheService.shared.getCachedTimetable() {
             return cached
         }
 
@@ -118,11 +118,18 @@ class APIService: ObservableObject {
             throw APIError.sessionExpired
         }
 
-        let result = HTMLParser.parseWeeklyCurriculum(html: html)
+        let timetable = HTMLParser.parseTimetableData(html: html)
+        CacheService.shared.cacheTimetable(timetable)
+        CacheService.shared.cacheCurriculum(timetable.curriculum)
+        return timetable
+    }
 
-        CacheService.shared.cacheCurriculum(result)
-
-        return result
+    func fetchCurriculum(classNumber: String = "212", forceRefresh: Bool = false) async throws -> [String: CourseInfo] {
+        if !forceRefresh, let cached = CacheService.shared.getCachedTimetable() {
+            return cached.curriculum
+        }
+        let timetable = try await fetchTimetableData(classNumber: classNumber, forceRefresh: forceRefresh)
+        return timetable.curriculum
     }
 
     // MARK: - 缺曠記錄

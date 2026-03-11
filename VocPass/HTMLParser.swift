@@ -130,6 +130,107 @@ class HTMLParser {
         return result
     }
 
+    // MARK: - 解析完整課表
+    static func parseTimetableData(html: String) -> TimetableData {
+        var entries: [TimetableEntry] = []
+        var periodTimes: [String: PeriodTime] = [:]
+        let weekdayMapping = ["一", "二", "三", "四", "五", "六", "日"]
+
+        print("🔍 [Parser] 解析完整課表（含時間）...")
+
+        let tablePattern = #"<table[^>]*TimeTable[^>]*>(.*?)</table>"#
+        guard let tableRegex = try? NSRegularExpression(pattern: tablePattern,
+                                                         options: [.dotMatchesLineSeparators, .caseInsensitive]),
+              let tableMatch = tableRegex.firstMatch(in: html,
+                                                      range: NSRange(html.startIndex..., in: html)),
+              let tableRange = Range(tableMatch.range, in: html) else {
+            print("❌ [Parser] 找不到 TimeTable 表格")
+            return TimetableData(entries: [], periodTimes: [:], curriculum: [:])
+        }
+
+        let tableContent = String(html[tableRange])
+
+        let rowPattern = #"<tr[^>]*>(.*?)</tr>"#
+        let rowRegex = try? NSRegularExpression(pattern: rowPattern,
+                                                 options: [.dotMatchesLineSeparators])
+        let rowMatches = rowRegex?.matches(in: tableContent,
+                                            range: NSRange(tableContent.startIndex..., in: tableContent)) ?? []
+
+        for (rowIndex, match) in rowMatches.enumerated() {
+            if rowIndex == 0 { continue }
+            guard let range = Range(match.range(at: 1), in: tableContent) else { continue }
+
+            let rowContent = String(tableContent[range])
+            let hasRowspan = rowContent.contains("rowspan")
+            let cells = extractTableCellsWithNewline(from: rowContent)
+
+            var periodLabel = ""
+            var timeCell = ""
+            var courseCellsStartIndex = 0
+
+            if hasRowspan {
+                guard cells.count > 2 else { continue }
+                periodLabel = cells[1]
+                timeCell    = cells[2]
+                courseCellsStartIndex = 3
+            } else {
+                guard cells.count > 1 else { continue }
+                periodLabel = cells[0]
+                timeCell    = cells[1]
+                courseCellsStartIndex = 2
+            }
+
+            var periodKey = periodLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let m = periodKey.range(of: #"第(.+)節"#, options: .regularExpression) {
+                let raw = String(periodKey[m])
+                periodKey = raw
+                    .replacingOccurrences(of: "第", with: "")
+                    .replacingOccurrences(of: "節", with: "")
+            }
+            if periodKey.isEmpty { continue }
+
+            let timeLines = timeCell.components(separatedBy: "\n")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            let timeParts = timeLines.filter {
+                $0.range(of: #"^\d{2}:\d{2}$"#, options: .regularExpression) != nil
+            }
+            if timeParts.count >= 2 {
+                periodTimes[periodKey] = PeriodTime(startTime: timeParts[0], endTime: timeParts[1])
+            }
+
+            let courseCells = cells.count > courseCellsStartIndex
+                ? Array(cells[courseCellsStartIndex...])
+                : []
+
+            for (idx, cell) in courseCells.enumerated() {
+                let subject = cell
+                    .components(separatedBy: "\n")
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .first { !$0.isEmpty } ?? ""
+                guard !subject.isEmpty else { continue }
+
+                let weekday = weekdayMapping[idx % 7]
+                entries.append(TimetableEntry(weekday: weekday, period: periodKey, subject: subject))
+            }
+        }
+
+        var curriculum: [String: CourseInfo] = [:]
+        for entry in entries {
+            let schedule = CourseSchedule(weekday: entry.weekday, period: entry.period)
+            if let existing = curriculum[entry.subject] {
+                curriculum[entry.subject] = CourseInfo(
+                    count: existing.count + 1,
+                    schedule: existing.schedule + [schedule]
+                )
+            } else {
+                curriculum[entry.subject] = CourseInfo(count: 1, schedule: [schedule])
+            }
+        }
+
+        print("🔍 [Parser] parseTimetableData: \(entries.count) 格課、\(periodTimes.count) 個節次時間")
+        return TimetableData(entries: entries, periodTimes: periodTimes, curriculum: curriculum)
+    }
+
     // MARK: - 解析缺曠記錄
     static func parseAbsenceRecords(html: String, filterTypes: [String] = ["曠", "事"]) -> [AbsenceRecord] {
         var records: [AbsenceRecord] = []
@@ -582,6 +683,9 @@ class HTMLParser {
                 cellContent = cellContent.replacingOccurrences(of: #"<[^>]+>"#, with: "", options: .regularExpression)
                 cellContent = decodeHTMLEntities(cellContent)
                 cellContent = cellContent.replacingOccurrences(of: "&nbsp;", with: " ")
+                cellContent = cellContent.replacingOccurrences(of: "&emsp;", with: " ")
+                cellContent = cellContent.replacingOccurrences(of: "&ensp;", with: " ")
+                cellContent = cellContent.replacingOccurrences(of: "&thinsp;", with: " ")
                 cellContent = cellContent.replacingOccurrences(of: "&amp;", with: "&")
                 cellContent = cellContent.replacingOccurrences(of: "&lt;", with: "<")
                 cellContent = cellContent.replacingOccurrences(of: "&gt;", with: ">")

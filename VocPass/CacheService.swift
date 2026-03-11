@@ -17,6 +17,8 @@ class CacheService {
     private enum CacheKey: String {
         case curriculum = "cached_curriculum"
         case curriculumTimestamp = "cached_curriculum_timestamp"
+        case timetable = "cached_timetable"
+        case timetableTimestamp = "cached_timetable_timestamp"
         case examMenu = "cached_exam_menu"
         case examMenuTimestamp = "cached_exam_menu_timestamp"
         case hasSeenOnboarding = "has_seen_onboarding"
@@ -24,6 +26,29 @@ class CacheService {
         case savedPassword = "saved_password"
         case savedSchoolCode = "saved_school_code"
         case rememberCredentials = "remember_credentials"
+        case autoStartDynamicIsland = "auto_start_dynamic_island"
+        case autoStartMinutesBefore = "auto_start_minutes_before"
+        case savedClassName = "saved_class_name"
+    }
+
+    // MARK: - Dynamic Island Settings
+
+    var autoStartDynamicIsland: Bool {
+        get { userDefaults.bool(forKey: CacheKey.autoStartDynamicIsland.rawValue) }
+        set { userDefaults.set(newValue, forKey: CacheKey.autoStartDynamicIsland.rawValue) }
+    }
+
+    var autoStartMinutesBefore: Int {
+        get {
+            let v = userDefaults.integer(forKey: CacheKey.autoStartMinutesBefore.rawValue)
+            return v == 0 ? 30 : v
+        }
+        set { userDefaults.set(newValue, forKey: CacheKey.autoStartMinutesBefore.rawValue) }
+    }
+
+    var savedClassName: String {
+        get { userDefaults.string(forKey: CacheKey.savedClassName.rawValue) ?? "" }
+        set { userDefaults.set(newValue, forKey: CacheKey.savedClassName.rawValue) }
     }
 
     // MARK: - Onboarding
@@ -166,8 +191,59 @@ class CacheService {
     // MARK: - Clear All Cache
     func clearAllCache() {
         clearCurriculumCache()
+        clearTimetableCache()
         clearExamMenuCache()
         print("📦 [Cache] Cleared all cache")
+    }
+
+    // MARK: - Timetable Cache
+    private let timetableParserVersion = "v2"
+    private let timetableParserVersionKey = "timetable_parser_version"
+
+    func invalidateTimetableCacheIfNeeded() {
+        let stored = userDefaults.string(forKey: timetableParserVersionKey) ?? ""
+        if stored != timetableParserVersion {
+            clearTimetableCache()
+            userDefaults.set(timetableParserVersion, forKey: timetableParserVersionKey)
+            print("📦 [Cache] Parser 版本更新（\(stored) → \(timetableParserVersion)），已清除舊課表快取")
+        }
+    }
+
+    func getCachedTimetable() -> TimetableData? {
+        guard let timestamp = userDefaults.object(forKey: CacheKey.timetableTimestamp.rawValue) as? Date else {
+            return nil
+        }
+        if Date().timeIntervalSince(timestamp) > cacheExpirationInterval {
+            clearTimetableCache()
+            return nil
+        }
+        guard let data = userDefaults.data(forKey: CacheKey.timetable.rawValue) else { return nil }
+        do {
+            let timetable = try JSONDecoder().decode(TimetableData.self, from: data)
+            print("📦 [Cache] Loaded timetable (\(timetable.entries.count) entries, \(timetable.periodTimes.count) period times)")
+            return timetable
+        } catch {
+            print("📦 [Cache] Failed to decode timetable: \(error)")
+            clearTimetableCache()
+            return nil
+        }
+    }
+
+    func cacheTimetable(_ timetable: TimetableData) {
+        do {
+            let data = try JSONEncoder().encode(timetable)
+            userDefaults.set(data, forKey: CacheKey.timetable.rawValue)
+            userDefaults.set(Date(), forKey: CacheKey.timetableTimestamp.rawValue)
+            print("📦 [Cache] Saved timetable (\(timetable.entries.count) entries)")
+        } catch {
+            print("📦 [Cache] Failed to encode timetable: \(error)")
+        }
+    }
+
+    func clearTimetableCache() {
+        userDefaults.removeObject(forKey: CacheKey.timetable.rawValue)
+        userDefaults.removeObject(forKey: CacheKey.timetableTimestamp.rawValue)
+        print("📦 [Cache] Cleared timetable cache")
     }
 
     // MARK: - Cache Info
