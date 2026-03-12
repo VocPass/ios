@@ -157,6 +157,11 @@ class SchoolConfigManager: ObservableObject {
 
                     self?.schools = filteredSchools
                     self?.cacheSchools(data)
+                    if let currentName = self?.selectedSchool?.name,
+                       let updated = filteredSchools.first(where: { $0.name == currentName }) {
+                        self?.selectedSchool = updated
+                        self?.saveSelectedSchool(updated)
+                    }
                     print("✅ [SchoolConfig] 從 API 載入 \(filteredSchools.count) 所學校（App \(self?.currentAppVersion ?? "0")）")
                 } catch {
                     print("❌ [SchoolConfig] 解析 JSON 失敗: \(error)")
@@ -212,8 +217,8 @@ class SchoolConfigManager: ObservableObject {
     private func loadDefaultSchools() {
         let defaultRoute = RouteConfig(
             meritDemerit: "/online/selection_student/moralculture_%20bonuspenalty.asp",
-            curriculum: "/online/student/absentation_skip_school.asp",
-            absentation: "/online/selection_student/absentation_skip_school.asp",
+            curriculum: "/online/selection_student/school_class_tabletime.asp",
+            absentation: "/online/student/absentation_skip_school.asp",
             examMenu: "/online/selection_student/student_subjects_number.asp?action=open_window_frame",
             examResults: "/online/selection_student/{file_name}",
             semesterScores: "/online/selection_student/year_accomplishment.asp?action=selection_underside_year&year_class={year_class}&number={number}"
