@@ -8,8 +8,11 @@
 import SwiftUI
 
 struct SchoolSelectionView: View {
+    @Environment(\.openURL) private var openURL
     @ObservedObject var configManager = SchoolConfigManager.shared
     @Binding var hasSelectedSchool: Bool
+
+    private let applySchoolURL = URL(string: "https://forms.gle/t145dao5K2DHkxa2A")
     
     var body: some View {
         NavigationStack {
@@ -49,12 +52,27 @@ struct SchoolSelectionView: View {
                     }
                     Spacer()
                 } else {
-                    List(configManager.schools) { school in
-                        SchoolRowView(school: school) {
-                            selectSchool(school)
+                    VStack(spacing: 0) {
+                        List(configManager.schools) { school in
+                            SchoolRowView(school: school) {
+                                selectSchool(school)
+                            }
                         }
+                        .listStyle(.insetGrouped)
+
+                        Button {
+                            guard let applySchoolURL else { return }
+                            openURL(applySchoolURL)
+                        } label: {
+                            Label("申請新增學校", systemImage: "plus.circle")
+                                .font(.headline)
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .padding(.horizontal)
+                        .padding(.top, 8)
+                        .padding(.bottom, 16)
                     }
-                    .listStyle(.insetGrouped)
                 }
             }
             .background(Color(.systemGroupedBackground))

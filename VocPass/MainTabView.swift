@@ -167,7 +167,7 @@ struct SettingsView: View {
                             .foregroundColor(.secondary)
                     }
                     
-                    Link(destination: URL(string: "https://github.com/HansHans135/VocPass")!) {
+                    Link(destination: URL(string: "https://github.com/VocPass")!) {
                         HStack {
                             Image(systemName: "link")
                             Text("GitHub")

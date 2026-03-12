@@ -39,13 +39,13 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		0453CA39F6B03EEBE744835D /* ClassScheduleWidget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ClassScheduleWidget.swift; path = ClassScheduleWidget.swift; sourceTree = "<group>"; };
+		0453CA39F6B03EEBE744835D /* ClassScheduleWidget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ClassScheduleWidget.swift; sourceTree = "<group>"; };
 		3A9BC4AF2F04CAF600F3A879 /* VocPass.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VocPass.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		58657D303600B4B655BAFB81 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; name = Info.plist; path = VocPassWidget/Info.plist; sourceTree = "<group>"; };
 		8DB40E37E7168ED9B8A1A14C /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
-		90BBCF3C30B0C3A1373513DD /* VocPassWidgetBundle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = VocPassWidgetBundle.swift; path = VocPassWidgetBundle.swift; sourceTree = "<group>"; };
+		90BBCF3C30B0C3A1373513DD /* VocPassWidgetBundle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VocPassWidgetBundle.swift; sourceTree = "<group>"; };
 		CCAFAA07F22612D78A4EE94D /* VocPassWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = VocPassWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		E25C42F901CE65CC76763FA3 /* ClassScheduleActivityAttributes.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ClassScheduleActivityAttributes.swift; path = ClassScheduleActivityAttributes.swift; sourceTree = "<group>"; };
+		E25C42F901CE65CC76763FA3 /* ClassScheduleActivityAttributes.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ClassScheduleActivityAttributes.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -123,7 +123,6 @@
 				E25C42F901CE65CC76763FA3 /* ClassScheduleActivityAttributes.swift */,
 				58657D303600B4B655BAFB81 /* Info.plist */,
 			);
-			name = VocPassWidget;
 			path = VocPassWidget;
 			sourceTree = "<group>";
 		};
@@ -428,7 +427,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.08hans.VocPass;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -468,7 +467,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.08hans.VocPass;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;

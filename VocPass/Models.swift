@@ -7,6 +7,13 @@
 
 import Foundation
 
+// MARK: - API 通用回應包裝器
+struct APIResponse<T: Decodable>: Decodable {
+    let code: Int
+    let message: String
+    let data: T
+}
+
 // MARK: - 獎懲記錄
 struct MeritDemeritRecord: Identifiable, Codable {
     let id = UUID()
@@ -14,25 +21,34 @@ struct MeritDemeritRecord: Identifiable, Codable {
     let dateApproved: String      // 核定日期
     let reason: String            // 事由
     let action: String            // 獎懲內容
-    let dateRevoked: String?      // 銷過日期
+    let dateRevoked: String?      // 销過日期
     let year: String              // 學年
 
     enum CodingKeys: String, CodingKey {
-        case dateOccurred, dateApproved, reason, action, dateRevoked, year
+        case dateOccurred  = "date_occurred"
+        case dateApproved  = "date_approved"
+        case reason
+        case action
+        case dateRevoked   = "date_revoked"
+        case year
     }
 }
 
 // MARK: - 缺曠記錄
 struct AbsenceRecord: Identifiable, Codable {
     let id = UUID()
-    let academicYear: String      // 學年
+    let academicYear: String      // 學期（上/下）
     let date: String              // 日期
     let weekday: String           // 星期
-    let period: String            // 節次
-    let status: String            // 狀態 (曠、事、病等)
+    let period: String            // 節次（1–7）
+    let status: String            // 狀態（曠、事、病等）
 
     enum CodingKeys: String, CodingKey {
-        case academicYear, date, weekday, period, status
+        case academicYear = "academic_term"
+        case date
+        case weekday
+        case period
+        case status       = "cell"
     }
 }
 
@@ -76,7 +92,32 @@ struct SubjectGrade: Identifiable, Codable {
     let yearGrade: String         // 學年成績
 
     enum CodingKeys: String, CodingKey {
-        case subject, firstSemester, secondSemester, yearGrade
+        case subject
+        case firstSemester  = "first_semester"
+        case secondSemester = "second_semester"
+        case yearGrade      = "year_grade"
+    }
+
+    private enum AlternateCodingKeys: String, CodingKey {
+        case annualScore = "annual_score"
+    }
+
+    init(subject: String, firstSemester: SemesterGrade, secondSemester: SemesterGrade, yearGrade: String) {
+        self.subject        = subject
+        self.firstSemester  = firstSemester
+        self.secondSemester = secondSemester
+        self.yearGrade      = yearGrade
+    }
+
+    init(from decoder: Decoder) throws {
+        let c    = try decoder.container(keyedBy: CodingKeys.self)
+        let alt  = try decoder.container(keyedBy: AlternateCodingKeys.self)
+        subject        = (try? c.decode(String.self,        forKey: .subject))        ?? ""
+        firstSemester  = (try? c.decode(SemesterGrade.self, forKey: .firstSemester))  ?? SemesterGrade()
+        secondSemester = (try? c.decode(SemesterGrade.self, forKey: .secondSemester)) ?? SemesterGrade()
+        yearGrade      = (try? c.decode(String.self,        forKey: .yearGrade))
+            ?? (try? alt.decode(String.self,                forKey: .annualScore))
+            ?? ""
     }
 }
 
@@ -84,12 +125,67 @@ struct SemesterGrade: Codable {
     let attribute: String         // 屬性
     let credit: String            // 學分
     let score: String             // 成績
+
+    init(attribute: String = "", credit: String = "", score: String = "") {
+        self.attribute = attribute
+        self.credit    = credit
+        self.score     = score
+    }
+
+    init(from decoder: Decoder) throws {
+        let c  = try decoder.container(keyedBy: CodingKeys.self)
+        let alt = try decoder.container(keyedBy: AlternateCodingKeys.self)
+        attribute = (try? c.decode(String.self, forKey: .attribute))
+            ?? (try? alt.decode(String.self, forKey: .type))
+            ?? ""
+        credit    = (try? c.decode(String.self, forKey: .credit))
+            ?? (try? alt.decode(String.self, forKey: .credits))
+            ?? ""
+        score     = (try? c.decode(String.self, forKey: .score))     ?? ""
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case attribute
+        case credit
+        case score
+    }
+
+    private enum AlternateCodingKeys: String, CodingKey {
+        case type
+        case credits
+    }
 }
 
 struct TotalScore: Codable {
     let firstSemester: String
     let secondSemester: String
     let year: String
+
+    enum CodingKeys: String, CodingKey {
+        case firstSemester = "first_semester"
+        case secondSemester = "second_semester"
+        case year
+    }
+
+    private enum AlternateCodingKeys: String, CodingKey {
+        case annual
+    }
+
+    init(firstSemester: String = "", secondSemester: String = "", year: String = "") {
+        self.firstSemester = firstSemester
+        self.secondSemester = secondSemester
+        self.year = year
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let alt = try decoder.container(keyedBy: AlternateCodingKeys.self)
+        firstSemester = (try? c.decode(String.self, forKey: .firstSemester)) ?? ""
+        secondSemester = (try? c.decode(String.self, forKey: .secondSemester)) ?? ""
+        year = (try? c.decode(String.self, forKey: .year))
+            ?? (try? alt.decode(String.self, forKey: .annual))
+            ?? ""
+    }
 }
 
 struct DailyPerformance: Codable {
@@ -106,17 +202,62 @@ struct GradeData: Codable {
     var subjects: [SubjectGrade] = []
     var totalScores: [String: TotalScore] = [:]
     var dailyPerformance: [String: DailyPerformance] = [:]
+
+    enum CodingKeys: String, CodingKey {
+        case studentInfo      = "student_info"
+        case subjects
+        case totalScores      = "total_scores"
+        case dailyPerformance = "daily_performance"
+    }
+
+    private enum AlternateCodingKeys: String, CodingKey {
+        case subjectScores = "subject_scores"
+    }
+
+    init(studentInfo: String = "",
+         subjects: [SubjectGrade] = [],
+         totalScores: [String: TotalScore] = [:],
+         dailyPerformance: [String: DailyPerformance] = [:]) {
+        self.studentInfo      = studentInfo
+        self.subjects         = subjects
+        self.totalScores      = totalScores
+        self.dailyPerformance = dailyPerformance
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let alt = try decoder.container(keyedBy: AlternateCodingKeys.self)
+        studentInfo      = (try? c.decode(String.self,                  forKey: .studentInfo))      ?? ""
+        subjects         = (try? c.decode([SubjectGrade].self,          forKey: .subjects))
+            ?? (try? alt.decode([SubjectGrade].self,                    forKey: .subjectScores))
+            ?? []
+        totalScores      = (try? c.decode([String: TotalScore].self,    forKey: .totalScores))      ?? [:]
+        dailyPerformance = (try? c.decode([String: DailyPerformance].self, forKey: .dailyPerformance)) ?? [:]
+    }
 }
 
 // MARK: - 考試成績
 struct ExamMenuItem: Identifiable, Codable, Hashable {
     let id = UUID()
     let name: String
-    let url: String
-    let fullURL: String
+    let url: String       // file_name (e.g. grade_chart_all.asp)
+    let fullURL: String   // 完整對學校伺服器的 URL
 
     enum CodingKeys: String, CodingKey {
-        case name, url, fullURL
+        case name, url
+    }
+
+    init(name: String, url: String, fullURL: String) {
+        self.name    = name
+        self.url     = url
+        self.fullURL = fullURL
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name    = (try? c.decode(String.self, forKey: .name)) ?? ""
+        url     = (try? c.decode(String.self, forKey: .url))  ?? ""
+        fullURL = ""
     }
 }
 

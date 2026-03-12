@@ -70,9 +70,10 @@ struct ScoreView: View {
                         // 總成績
                         if !gradeData.totalScores.isEmpty {
                             Section("總成績") {
-                                ForEach(Array(gradeData.totalScores.keys.sorted()), id: \.self) { category in
+                                ForEach(orderedTotalScoreKeys(), id: \.self) { category in
                                     if let score = gradeData.totalScores[category] {
                                         TotalScoreRow(category: category, score: score)
+                                            .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
                                     }
                                 }
                             }
@@ -113,6 +114,25 @@ struct ScoreView: View {
                 self.isLoading = false
             }
         }
+    }
+
+    private func orderedTotalScoreKeys() -> [String] {
+        let preferredOrder = [
+            "補前平均",
+            "學科平均",
+            "智育成績",
+            "體育成績",
+            "實習成績",
+            "軍訓成績",
+            "實得學分",
+            "實得累計",
+            "學期名次"
+        ]
+
+        let existing = Set(gradeData.totalScores.keys)
+        let ordered = preferredOrder.filter { existing.contains($0) }
+        let remaining = existing.subtracting(preferredOrder).sorted()
+        return ordered + remaining
     }
 }
 
@@ -187,20 +207,51 @@ struct TotalScoreRow: View {
     let score: TotalScore
 
     var body: some View {
-        HStack {
+        VStack(alignment: .leading, spacing: 10) {
             Text(category)
-                .font(.subheadline)
-            Spacer()
-            VStack(alignment: .trailing, spacing: 2) {
-                HStack(spacing: 16) {
-                    Text("上: \(score.firstSemester)")
-                    Text("下: \(score.secondSemester)")
-                    Text("學年: \(score.year)")
-                        .fontWeight(.semibold)
-                }
-                .font(.caption)
+                .font(.headline)
+
+            HStack(spacing: 12) {
+                scoreCell(title: "上", value: score.firstSemester)
+                scoreCell(title: "下", value: score.secondSemester)
+                scoreCell(title: "學年", value: score.year, emphasize: true)
             }
         }
+        .padding(.vertical, 12)
+        .padding(.horizontal, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 14)
+                .fill(Color(.secondarySystemBackground))
+        )
+    }
+
+    @ViewBuilder
+    private func scoreCell(title: String, value: String, emphasize: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.caption2)
+                .foregroundColor(.secondary)
+
+            Text(displayValue(value))
+                .font(emphasize ? .headline : .subheadline)
+                .fontWeight(emphasize ? .semibold : .regular)
+                .monospacedDigit()
+                .foregroundColor(displayColor(value, emphasize: emphasize))
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func displayValue(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "—" : trimmed
+    }
+
+    private func displayColor(_ raw: String, emphasize: Bool) -> Color {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return .secondary }
+        return emphasize ? .primary : .primary.opacity(0.9)
     }
 }
 
