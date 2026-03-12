@@ -45,7 +45,7 @@ struct OnboardingView: View {
             iconColor: .indigo,
             title: "隱私保護",
             subtitle: "您的資料安全無虞",
-            description: "所有資料皆在本地處理，不會連線到第三方伺服器，確保您的校務資訊和個人隱私得到完整保障。"
+            description: "所有帳號密碼（不含成績等資訊）皆在本地處理，不會連線到第三方伺服器，確保您的個人隱私得到完整保障。"
         ),
         OnboardingPage(
             icon: "checkmark.shield.fill",

@@ -196,12 +196,7 @@ class CaptchaRecognizer {
         
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = false
-        
-        if #available(iOS 16.0, *) {
-            request.automaticallyDetectsLanguage = true
-        } else {
-            request.recognitionLanguages = ["en-US", "zh-Hans", "zh-Hant"]
-        }
+        request.recognitionLanguages = ["en-US"]
         
         let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
         
@@ -218,11 +213,11 @@ class CaptchaRecognizer {
     }
     
     private func cleanupRecognizedText(_ text: String) -> String {
-        return text
+        return String(text
             .trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: " ", with: "")
-            .replacingOccurrences(of: "\n", with: "")
-            .replacingOccurrences(of: "\t", with: "")
+            .unicodeScalars
+            .filter { CharacterSet.alphanumerics.contains($0) }
+        ).uppercased()
     }
     
     private func selectBestCaptchaResult(from results: [String]) -> String? {
@@ -262,7 +257,7 @@ class CaptchaRecognizer {
         
         let specialCharacters = CharacterSet.alphanumerics.inverted
         if candidate.rangeOfCharacter(from: specialCharacters) != nil {
-            score -= 5
+            score -= 50
         }
         
         return score

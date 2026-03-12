@@ -45,7 +45,7 @@ struct AttendanceView: View {
                                 Text("無缺曠記錄")
                                     .foregroundColor(.secondary)
                             } else {
-                                ForEach(subjectAbsences) { absence in
+                                ForEach(subjectAbsences.filter { $0.truancy + $0.personalLeave > 0 }) { absence in
                                     SubjectAbsenceRow(absence: absence)
                                 }
                             }
