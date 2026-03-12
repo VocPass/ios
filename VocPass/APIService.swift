@@ -107,8 +107,9 @@ class APIService: ObservableObject {
         throw URLError(.cannotDecodeContentData)
     }
 
-    // MARK: - 向 VocPass 解析 API POST HTML，回傳解析後的資料
-    private func postHTML<T: Decodable>(to endpoint: String, html: String) async throws -> T {
+    // MARK: - 向 VocPass 解析 API POST 內容，回傳解析後的資料
+    // 若 content 為 JSON 格式則以 {"data": ...} 送出，否則以 {"html": "..."} 送出
+    private func postContent<T: Decodable>(to endpoint: String, content: String) async throws -> T {
         guard let url = URL(string: endpoint) else {
             print("❌ [API] Invalid endpoint: \(endpoint)")
             throw URLError(.badURL)
@@ -119,7 +120,16 @@ class APIService: ObservableObject {
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try JSONEncoder().encode(["html": html])
+
+        if let rawData = content.data(using: .utf8),
+           let jsonObject = try? JSONSerialization.jsonObject(with: rawData),
+           JSONSerialization.isValidJSONObject(jsonObject) {
+            req.httpBody = try JSONSerialization.data(withJSONObject: ["data": jsonObject])
+            print("📦 [API] Sending as JSON data")
+        } else {
+            req.httpBody = try JSONEncoder().encode(["html": content])
+            print("📦 [API] Sending as HTML")
+        }
 
         let (data, response) = try await URLSession.shared.data(for: req)
 
@@ -186,7 +196,7 @@ class APIService: ObservableObject {
         }
 
         let endpoint = try parseEndpoint("merit_demerit")
-        let response: APIResponse<[[MeritDemeritRecord]]> = try await postHTML(to: endpoint, html: html)
+        let response: APIResponse<[[MeritDemeritRecord]]> = try await postContent(to: endpoint, content: html)
 
         let merits   = response.data.count > 0 ? response.data[0] : []
         let demerits = response.data.count > 1 ? response.data[1] : []
@@ -212,7 +222,7 @@ class APIService: ObservableObject {
         }
 
         let endpoint = try parseEndpoint("curriculum")
-        let response: APIResponse<[String: CourseInfo]> = try await postHTML(to: endpoint, html: html)
+        let response: APIResponse<[String: CourseInfo]> = try await postContent(to: endpoint, content: html)
 
         let curriculum = response.data
 
@@ -252,7 +262,7 @@ class APIService: ObservableObject {
         }
 
         let endpoint = try parseEndpoint("attendance")
-        let response: APIResponse<[AbsenceRecord]> = try await postHTML(to: endpoint, html: html)
+        let response: APIResponse<[AbsenceRecord]> = try await postContent(to: endpoint, content: html)
 
         let records     = response.data
         let statistics  = computeAttendanceStatistics(from: records)
@@ -280,7 +290,7 @@ class APIService: ObservableObject {
 
         // 呼叫解析 API
         let endpoint = try parseEndpoint("semester_scores")
-        let response: APIResponse<GradeData> = try await postHTML(to: endpoint, html: html)
+        let response: APIResponse<GradeData> = try await postContent(to: endpoint, content: html)
         return response.data
     }
 
@@ -301,7 +311,7 @@ class APIService: ObservableObject {
 
         // 呼叫解析 API，再以 exam_results 路由 + file_name 組合完整 URL
         let endpoint = try parseEndpoint("exam_menu")
-        let response: APIResponse<[ExamMenuItem]> = try await postHTML(to: endpoint, html: html)
+        let response: APIResponse<[ExamMenuItem]> = try await postContent(to: endpoint, content: html)
         guard let examResultsRoute = school.route.examResults else {
             throw APIError.featureNotSupported
         }
