@@ -6,8 +6,11 @@
 //
 
 import ActivityKit
-import Foundation
+import BackgroundTasks
 import Combine
+import Foundation
+
+let kDIBGTaskID = "com.08hans.VocPass.liveActivity"
 
 @MainActor
 final class DynamicIslandService: ObservableObject {
@@ -18,6 +21,7 @@ final class DynamicIslandService: ObservableObject {
     @Published var isActivityRunning = false
     @Published var currentSubject: String = ""
     @Published var nextSubject: String = ""
+    @Published var currentPeriod: String = ""
 
     private var activity: Activity<ClassScheduleActivityAttributes>?
     private var updateTask: Task<Void, Never>?
@@ -33,72 +37,175 @@ final class DynamicIslandService: ObservableObject {
         1: "日", 2: "一", 3: "二", 4: "三", 5: "四", 6: "五", 7: "六"
     ]
 
+    private struct Slot {
+        let entry: TimetableEntry
+        let start: Date
+        let end: Date
+    }
+
+    // MARK: - 更新課表資料
+
     func setTimetable(_ data: TimetableData) {
         self.timetable = data
+        reconnectIfNeeded()
         if isActivityRunning {
             updateActivity()
-        }
-        if CacheService.shared.autoStartDynamicIsland {
-            scheduleAutoStart()
-        }
-    }
-
-    // MARK: - 自動排程：第一節課前 N 分鐘自動啟動
-
-    private var autoStartTask: Task<Void, Never>?
-
-    func scheduleAutoStart() {
-        autoStartTask?.cancel()
-        guard let timetable else { return }
-
-        let minutesBefore = TimeInterval(CacheService.shared.autoStartMinutesBefore)
-        let calendar = Calendar.current
-        let now = Date()
-        let weekdayNum = calendar.component(.weekday, from: now)
-        let weekdayMap: [Int: String] = [1:"日",2:"一",3:"二",4:"三",5:"四",6:"五",7:"六"]
-        let todayWeekday = weekdayMap[weekdayNum] ?? ""
-
-        let todayPeriods = timetable.entries.filter { $0.weekday == todayWeekday }
-        guard !todayPeriods.isEmpty else {
-            print("⚡ [DI] 今日無課，不排程自動啟動")
-            return
-        }
-
-        let firstEntry = todayPeriods.min {
-            (Self.periodOrder[$0.period] ?? 99) < (Self.periodOrder[$1.period] ?? 99)
-        }
-        guard let first = firstEntry,
-              let pt = timetable.periodTimes[first.period],
-              let firstStart = Self.parseTime(pt.startTime, on: now, calendar: calendar)
-        else { return }
-
-        let triggerTime = firstStart.addingTimeInterval(-minutesBefore * 60)
-
-        guard triggerTime > now else {
-            if firstStart > now && !isActivityRunning {
-                print("⚡ [DI] 第一節即將開始，立即啟動")
-                let className = CacheService.shared.savedClassName.isEmpty ? "我的課表" : CacheService.shared.savedClassName
-                Task { await startActivity(className: className) }
+            if currentSubject.isEmpty && nextSubject.isEmpty {
+                endActivity()
             }
+        } else {
+            autoStartIfNeeded()
+        }
+        if CacheService.shared.autoStartDynamicIsland { scheduleNextBGRefresh() }
+    }
+
+    func reconnectIfNeeded() {
+        guard activity == nil else { return }
+        guard let existing = Activity<ClassScheduleActivityAttributes>.activities.first(where: {
+            $0.activityState == .active || $0.activityState == .stale
+        }) else { return }
+
+        activity = existing
+        isActivityRunning = true
+        print("⚡ [DI] 重新連接到現有 Live Activity：\(existing.id)")
+        startUpdateLoop()
+    }
+
+    // MARK: - 今日時段清單
+
+    private func todaySlots(on date: Date = Date()) -> [Slot] {
+        guard let timetable else { return [] }
+        let calendar = Calendar.current
+        let weekdayNum = calendar.component(.weekday, from: date)
+        let todayWeekday = Self.weekdayMap[weekdayNum] ?? ""
+
+        return timetable.entries
+            .filter { $0.weekday == todayWeekday }
+            .sorted { (Self.periodOrder[$0.period] ?? 99) < (Self.periodOrder[$1.period] ?? 99) }
+            .compactMap { entry -> Slot? in
+                guard let pt = timetable.periodTimes[entry.period],
+                      let start = Self.parseTime(pt.startTime, on: date, calendar: calendar),
+                      let end   = Self.parseTime(pt.endTime,   on: date, calendar: calendar)
+                else { return nil }
+                return Slot(entry: entry, start: start, end: end)
+            }
+    }
+
+    private func computeNextStaleDate(from now: Date = Date()) -> Date? {
+        let slots = todaySlots(on: now)
+        if let cur = slots.first(where: { now >= $0.start && now <= $0.end }) { return cur.end }
+        return slots.first { $0.start > now }?.start
+    }
+
+    // MARK: - BGTaskScheduler
+
+    private func buildTriggers(on date: Date) -> [Date] {
+        let slots = todaySlots(on: date)
+        guard !slots.isEmpty else { return [] }
+        let minutesBefore = TimeInterval(CacheService.shared.autoStartMinutesBefore)
+        var triggers: [Date] = []
+        if let first = slots.first {
+            triggers.append(first.start.addingTimeInterval(-minutesBefore * 60))
+        }
+        for s in slots {
+            triggers.append(s.start)
+            triggers.append(s.end)
+        }
+        return triggers
+    }
+
+    private func nextBGTrigger(after now: Date) -> Date? {
+        let todayTriggers = buildTriggers(on: now).filter { $0 > now }
+        if let t = todayTriggers.min() { return t }
+
+        guard let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: now) else { return nil }
+        let tomorrowMorning = Calendar.current.startOfDay(for: tomorrow)
+        return buildTriggers(on: tomorrowMorning).min()
+    }
+
+    func scheduleNextBGRefresh(after now: Date = Date()) {
+        BGTaskScheduler.shared.cancelAllTaskRequests()
+        guard CacheService.shared.autoStartDynamicIsland || isActivityRunning else { return }
+        guard let trigger = nextBGTrigger(after: now) else {
+            print("⚡ [DI] 近期無課，不排程 BG Refresh")
             return
         }
-
-        let delay = triggerTime.timeIntervalSince(now)
-        print("⚡ [DI] 將於 \(Int(delay/60)) 分鐘後（\(pt.startTime) 前 \(Int(minutesBefore)) 分鐘）自動啟動")
-
-        autoStartTask = Task {
-            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-            guard !Task.isCancelled else { return }
-            let className = CacheService.shared.savedClassName.isEmpty ? "我的課表" : CacheService.shared.savedClassName
-            await startActivity(className: className)
+        let req = BGAppRefreshTaskRequest(identifier: kDIBGTaskID)
+        req.earliestBeginDate = trigger
+        do {
+            try BGTaskScheduler.shared.submit(req)
+            print("⚡ [DI] BG Refresh 排程於 \(trigger)")
+        } catch {
+            print("⚡ [DI] BG Refresh 排程失敗：\(error)")
         }
     }
+
+    func handleBackgroundRefresh(_ task: BGAppRefreshTask) {
+        task.expirationHandler = { [weak self] in
+            self?.scheduleNextBGRefresh()
+            task.setTaskCompleted(success: false)
+        }
+
+        reconnectIfNeeded()
+
+        let now = Date()
+        let state = makeContentState(at: now)
+
+        if isActivityRunning {
+            if state.currentSubject.isEmpty && state.nextSubject.isEmpty {
+                endActivity()
+            } else {
+                updateActivity()
+            }
+            scheduleNextBGRefresh(after: now)
+            task.setTaskCompleted(success: true)
+        } else if CacheService.shared.autoStartDynamicIsland
+                    && (!state.currentSubject.isEmpty || !state.nextSubject.isEmpty) {
+            let name = CacheService.shared.savedClassName.isEmpty
+                ? "我的課表" : CacheService.shared.savedClassName
+            Task {
+                await self.startActivity(className: name)
+                self.scheduleNextBGRefresh(after: now)
+                task.setTaskCompleted(success: true)
+            }
+        } else {
+            scheduleNextBGRefresh(after: now)
+            task.setTaskCompleted(success: true)
+        }
+    }
+
+    // MARK: - 自動排程（公開介面）
+
+    func scheduleAutoStart() { scheduleNextBGRefresh() }
 
     func cancelAutoStart() {
-        autoStartTask?.cancel()
-        autoStartTask = nil
+        BGTaskScheduler.shared.cancelAllTaskRequests()
         print("⚡ [DI] 已取消自動排程")
     }
+
+    func autoStartIfNeeded() {
+        guard CacheService.shared.autoStartDynamicIsland else { return }
+        guard !isActivityRunning, activity == nil else { return }
+        guard timetable != nil else { return }
+
+        let now = Date()
+        let slots = todaySlots(on: now)
+        guard !slots.isEmpty,
+              let firstStart = slots.first?.start,
+              let lastEnd = slots.last?.end else { return }
+
+        let minutesBefore = TimeInterval(CacheService.shared.autoStartMinutesBefore)
+        let autoStartTime = firstStart.addingTimeInterval(-minutesBefore * 60)
+
+        guard now >= autoStartTime && now <= lastEnd else { return }
+
+        let name = CacheService.shared.savedClassName.isEmpty
+            ? "我的課表" : CacheService.shared.savedClassName
+        print("⚡ [DI] 自動啟動 Live Activity")
+        Task { await self.startActivity(className: name) }
+    }
+
+    // MARK: - 啟動即時動態
 
     func startActivity(className: String) async {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else {
@@ -110,48 +217,53 @@ final class DynamicIslandService: ObservableObject {
             return
         }
 
-        let attributes = ClassScheduleActivityAttributes(className: className)
-        let initialState = makeContentState(at: Date())
+        for old in Activity<ClassScheduleActivityAttributes>.activities {
+            await old.end(nil, dismissalPolicy: .immediate)
+        }
 
-        let newActivity = await Task.detached(priority: .userInitiated) {
-            try? Activity<ClassScheduleActivityAttributes>.request(
+        let attributes = ClassScheduleActivityAttributes(className: className)
+        let state = makeContentState(at: Date())
+
+        do {
+            let newActivity = try Activity<ClassScheduleActivityAttributes>.request(
                 attributes: attributes,
-                content: .init(state: initialState, staleDate: Date().addingTimeInterval(60 * 60)),
+                content: ActivityContent(
+                    state: state,
+                    staleDate: computeNextStaleDate()
+                ),
                 pushType: nil
             )
-        }.value
-
-        guard let newActivity else {
-            print("⚡ [DI] 無法啟動 Live Activity（request 失敗）")
-            return
+            activity = newActivity
+            isActivityRunning = true
+            print("⚡ [DI] Live Activity 已啟動：\(newActivity.id)")
+            startUpdateLoop()
+            scheduleNextBGRefresh()
+        } catch {
+            print("⚡ [DI] 無法啟動 Live Activity：\(error)")
         }
-        activity = newActivity
-        isActivityRunning = true
-        print("⚡ [DI] Live Activity 已啟動：\(newActivity.id)")
-        startUpdateLoop()
     }
+
+    // MARK: - 更新即時動態
 
     func updateActivity() {
         guard let act = activity else { return }
         let state = makeContentState(at: Date())
         currentSubject = state.currentSubject
         nextSubject    = state.nextSubject
-
-        let content = ActivityContent(
-            state: state,
-            staleDate: Date().addingTimeInterval(60 * 60)
-        )
-        Task.detached(priority: .utility) {
-            await act.update(content)
-        }
+        currentPeriod  = state.currentPeriod
+        let content = ActivityContent(state: state, staleDate: computeNextStaleDate())
+        Task.detached(priority: .utility) { await act.update(content) }
         print("⚡ [DI] 已更新：\(state.currentSubject.isEmpty ? "下課中" : state.currentSubject) → \(state.nextSubject.isEmpty ? "今天結束" : state.nextSubject)")
     }
+
+    // MARK: - 結束即時動態
 
     func endActivity() {
         guard let act = activity else { return }
         activity = nil
         isActivityRunning = false
         stopUpdateLoop()
+        scheduleNextBGRefresh()
         let finalState = ClassScheduleActivityAttributes.ContentState(
             currentPeriod: "", currentSubject: "", currentStartTime: nil,
             currentEndTime: nil, nextPeriod: "", nextSubject: "", nextStartTime: nil
@@ -159,13 +271,13 @@ final class DynamicIslandService: ObservableObject {
         Task.detached(priority: .utility) {
             await act.end(
                 ActivityContent(state: finalState, staleDate: nil),
-                dismissalPolicy: .after(Date().addingTimeInterval(5))
+                dismissalPolicy: .immediate
             )
         }
         print("⚡ [DI] Live Activity 已結束")
     }
 
-    // MARK: - 定時更新
+    // MARK: - 定時更新迴圈
 
     private func startUpdateLoop() {
         stopUpdateLoop()
@@ -174,13 +286,22 @@ final class DynamicIslandService: ObservableObject {
             while !Task.isCancelled {
                 await MainActor.run { self.updateActivity() }
 
-                let comps = Calendar.current.dateComponents([.hour, .minute], from: Date())
-                if (comps.hour ?? 0) >= 17 && (comps.minute ?? 0) >= 10 {
+                let schoolDone = await MainActor.run {
+                    self.currentSubject.isEmpty && self.nextSubject.isEmpty
+                }
+                if schoolDone {
                     await MainActor.run { self.endActivity() }
                     return
                 }
 
-                try? await Task.sleep(nanoseconds: 30 * 1_000_000_000)
+                let sleepSeconds: TimeInterval = await MainActor.run {
+                    if let stale = self.computeNextStaleDate() {
+                        let interval = stale.timeIntervalSince(Date()) + 1
+                        return min(max(interval, 5), 60)
+                    }
+                    return 30
+                }
+                try? await Task.sleep(nanoseconds: UInt64(sleepSeconds * 1_000_000_000))
             }
         }
     }
@@ -190,42 +311,25 @@ final class DynamicIslandService: ObservableObject {
         updateTask = nil
     }
 
+    // MARK: - 計算目前 / 下一堂課的 ContentState
 
     func makeContentState(at date: Date) -> ClassScheduleActivityAttributes.ContentState {
-        guard let timetable else {
+        let slots = todaySlots(on: date)
+        guard !slots.isEmpty else {
             return ClassScheduleActivityAttributes.ContentState(
                 currentPeriod: "", currentSubject: "", currentStartTime: nil,
                 currentEndTime: nil, nextPeriod: "", nextSubject: "", nextStartTime: nil
             )
         }
 
-        let calendar = Calendar.current
-        let weekdayNum = calendar.component(.weekday, from: date)
-        let todayWeekday = Self.weekdayMap[weekdayNum] ?? ""
+        let current = slots.first { date >= $0.start && date < $0.end }
 
-        let todayEntries = timetable.entries
-            .filter { $0.weekday == todayWeekday }
-            .sorted { (Self.periodOrder[$0.period] ?? 99) < (Self.periodOrder[$1.period] ?? 99) }
-
-        struct Slot {
-            let entry: TimetableEntry
-            let start: Date
-            let end: Date
+        let afterCurrent: Slot?
+        if let c = current {
+            afterCurrent = slots.first { $0.start > c.end }
+        } else {
+            afterCurrent = slots.first { $0.start > date }
         }
-        let slots: [Slot] = todayEntries.compactMap { entry in
-            guard let pt = timetable.periodTimes[entry.period],
-                  let start = Self.parseTime(pt.startTime, on: date, calendar: calendar),
-                  let end   = Self.parseTime(pt.endTime,   on: date, calendar: calendar)
-            else { return nil }
-            return Slot(entry: entry, start: start, end: end)
-        }
-
-        let current = slots.first { date >= $0.start && date <= $0.end }
-
-        let afterCurrent = current.map { c in slots.first { $0.start > c.end } } ?? slots.first { $0.start > date }
-
-        currentSubject = current?.entry.subject ?? ""
-        nextSubject    = afterCurrent?.entry.subject ?? ""
 
         return ClassScheduleActivityAttributes.ContentState(
             currentPeriod:    current?.entry.period  ?? "",
@@ -237,7 +341,9 @@ final class DynamicIslandService: ObservableObject {
             nextStartTime:    afterCurrent?.start
         )
     }
-    
+
+    // MARK: - 工具：將 "HH:MM" 轉成指定日期對應的 Date
+
     private static func parseTime(_ timeStr: String, on date: Date, calendar: Calendar) -> Date? {
         let parts = timeStr.split(separator: ":").compactMap { Int($0) }
         guard parts.count == 2 else { return nil }

@@ -185,10 +185,10 @@ struct CurriculumView: View {
 
     private func isCurrentPeriod(weekday: String, period: String) -> Bool {
         guard dynamicIsland.isActivityRunning else { return false }
-        let state = dynamicIsland.makeContentState(at: Date())
+        guard !dynamicIsland.currentPeriod.isEmpty else { return false }
         let weekdayMap: [Int: String] = [1:"日",2:"一",3:"二",4:"三",5:"四",6:"五",7:"六"]
         let today = weekdayMap[Calendar.current.component(.weekday, from: Date())] ?? ""
-        return weekday == today && period == state.currentPeriod && !state.currentPeriod.isEmpty
+        return weekday == today && period == dynamicIsland.currentPeriod
     }
 
     private func randomColor(for subject: String) -> Color {

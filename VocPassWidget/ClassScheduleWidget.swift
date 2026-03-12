@@ -217,16 +217,15 @@ private struct CompactTrailingView: View {
     let context: ActivityViewContext<ClassScheduleActivityAttributes>
 
     var body: some View {
-        if let start = context.state.currentStartTime,
-           let end   = context.state.currentEndTime {
-            ProgressView(timerInterval: start...end, countsDown: false) {
-            } currentValueLabel: { EmptyView() }
-            .progressViewStyle(.circular)
-            .tint(Color.blue)
-            .scaleEffect(0.65)
-            .padding(.trailing, 2)
+        if let end = context.state.currentEndTime {
+            Text(end, style: .timer)
+                .frame(maxWidth: .minimum(50, 50), alignment: .leading)
+                .font(.system(size: 11, weight: .medium).monospacedDigit())
+                .foregroundStyle(Color.orange)
+                .padding(.trailing, 4)
         } else if let nextStart = context.state.nextStartTime {
             Text(nextStart, style: .timer)
+                .frame(maxWidth: .minimum(50, 50), alignment: .leading)
                 .font(.system(size: 11, weight: .medium).monospacedDigit())
                 .foregroundStyle(Color.green)
                 .padding(.trailing, 4)

@@ -155,7 +155,7 @@ struct SettingsView: View {
                 } header: {
                     Text("即時動態 / 動態島")
                 } footer: {
-                    Text("開啟後，每天第一節課前 \(minutesBefore) 分鐘自動顯示動態島課表；17:10 後自動結束。")
+                    Text("開啟後，每天第一節課前 \(minutesBefore) 分鐘自動顯示動態島課表；放學後自動結束。")
                         .font(.caption)
                 }
 
