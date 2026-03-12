@@ -98,22 +98,7 @@ struct LoginView: View {
                     .padding(.bottom, 100)
                 }
 
-                if isLoggingIn {
-                    Color.black.opacity(0.5)
-                        .ignoresSafeArea()
 
-                    VStack(spacing: 16) {
-                        ProgressView()
-                            .scaleEffect(1.5)
-                            .tint(.white)
-                        Text("登入中...")
-                            .font(.headline)
-                            .foregroundColor(.white)
-                    }
-                    .padding(32)
-                    .background(.ultraThinMaterial)
-                    .cornerRadius(16)
-                }
             }
             .navigationTitle(school.name)
             .navigationBarTitleDisplayMode(.inline)

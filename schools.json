@@ -31,7 +31,8 @@
             "attendance": "/online/student/absentation_skip_school.asp",
             "exam_menu": "/online/selection_student/student_subjects_number.asp?action=open_window_frame",
             "exam_results":"/online/selection_student/{file_name}",
-            "semester_scores":"/online/selection_student/year_accomplishment.asp?action=selection_underside_year&year_class={year_class}&number={number}"
+            "semester_scores":"/online/selection_student/year_accomplishment.asp?action=selection_underside_year&year_class={year_class}&number={number}",
+            "curriculum": "/online/student/school_class_tabletime.asp"
         }
     },
     "三重商工": {
@@ -66,7 +67,8 @@
             "attendance": "/online/student/absentation_skip_school.asp",
             "exam_menu": "/online/selection_student/student_subjects_number.asp?action=open_window_frame",
             "exam_results":"/online/selection_student/{file_name}",
-            "semester_scores":"/online/selection_student/year_accomplishment.asp?action=selection_underside_year&year_class={year_class}&number={number}"
+            "semester_scores":"/online/selection_student/year_accomplishment.asp?action=selection_underside_year&year_class={year_class}&number={number}",
+            "curriculum": "/online/student/school_class_tabletime.asp"
         }
     },
     "新北高工": {
@@ -101,7 +103,8 @@
             "attendance": "/online/student/absentation_skip_school.asp",
             "exam_menu": "/online/selection_student/student_subjects_number.asp?action=open_window_frame",
             "exam_results":"/online/selection_student/{file_name}",
-            "semester_scores":"/online/selection_student/year_accomplishment.asp?action=selection_underside_year&year_class={year_class}&number={number}"
+            "semester_scores":"/online/selection_student/year_accomplishment.asp?action=selection_underside_year&year_class={year_class}&number={number}",
+            "curriculum": "/online/student/school_class_tabletime.asp"
         }
     }
 }

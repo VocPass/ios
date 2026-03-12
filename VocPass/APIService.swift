@@ -341,14 +341,20 @@ class APIService: ObservableObject {
         async let attendanceTask = fetchAttendance()
         async let curriculumTask = fetchCurriculum(classNumber: classNumber)
 
-        let (attendanceResult, curriculum) = try await (attendanceTask, curriculumTask)
+        let attendanceResult = try await attendanceTask
+        let curriculum = try? await curriculumTask
 
-        let subjectAbsences = calculateSubjectAbsences(
-            curriculum: curriculum,
-            absenceRecords: attendanceResult.records,
-            weeksPerSemester: weeksPerSemester,
-            currentSemester: attendanceResult.semesterInfo?.semester
-        )
+        let subjectAbsences: [SubjectAbsence]
+        if let curriculum {
+            subjectAbsences = calculateSubjectAbsences(
+                curriculum: curriculum,
+                absenceRecords: attendanceResult.records,
+                weeksPerSemester: weeksPerSemester,
+                currentSemester: attendanceResult.semesterInfo?.semester
+            )
+        } else {
+            subjectAbsences = []
+        }
 
         return (attendanceResult.statistics, subjectAbsences)
     }

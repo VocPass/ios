@@ -35,16 +35,16 @@ struct SchoolConfig: Codable, Identifiable {
 // MARK: - 路由配置
 struct RouteConfig: Codable {
     let meritDemerit: String?   // 獎懲記錄
-    let curriculum: String?     // 課表（JSON key: attendance）
-    let absentation: String?    // 缺曠記錄
+    let curriculum: String?     // 課表（JSON key: curriculum）
+    let absentation: String?    // 缺曠記錄（JSON key: attendance）
     let examMenu: String?       // 考試選單
     let examResults: String?    // 考試成績（含 {file_name} 變數）
     let semesterScores: String? // 學年成績（含 {year_class}、{number} 變數）
 
     enum CodingKeys: String, CodingKey {
         case meritDemerit  = "merit_demerit"
-        case curriculum    = "attendance"
-        case absentation
+        case curriculum
+        case absentation   = "attendance"
         case examMenu      = "exam_menu"
         case examResults   = "exam_results"
         case semesterScores = "semester_scores"
