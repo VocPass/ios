@@ -41,12 +41,14 @@ class APIService: ObservableObject {
         return school
     }
 
-    // MARK: - 組合學校路由 URL（支援 {variable} 替換）
+    // MARK: - 組合學校路由 URL（route 為 nil 時拋出 featureNotSupported）
     private func buildSchoolURL(route: String?,
-                                fallback: String,
                                 variables: [String: String] = [:]) throws -> String {
+        guard let route else {
+            throw APIError.featureNotSupported
+        }
         let school = try selectedSchool()
-        var routePath = route ?? fallback
+        var routePath = route
         for (key, value) in variables {
             routePath = routePath.replacingOccurrences(of: "{\(key)}", with: value)
         }
@@ -175,8 +177,7 @@ class APIService: ObservableObject {
     // MARK: - 獎懲記錄
     func fetchMeritDemeritRecords() async throws -> (merits: [MeritDemeritRecord], demerits: [MeritDemeritRecord]) {
         let school  = try selectedSchool()
-        let url     = try buildSchoolURL(route: school.route.meritDemerit,
-                                         fallback: "/online/selection_student/moralculture_%20bonuspenalty.asp")
+        let url     = try buildSchoolURL(route: school.route.meritDemerit)
         let html    = try await request(url: url)
 
         if needsRelogin(html) {
@@ -199,8 +200,10 @@ class APIService: ObservableObject {
         }
 
         let school  = try selectedSchool()
-        let baseRoute = school.route.curriculum ?? "/online/student/absentation_skip_school.asp"
-        let url     = school.api + baseRoute + "?teacher_classnumber=\(classNumber)"
+        guard let curriculumRoute = school.route.curriculum else {
+            throw APIError.featureNotSupported
+        }
+        let url     = school.api + curriculumRoute + "?teacher_classnumber=\(classNumber)"
         let html    = try await request(url: url)
 
         if needsRelogin(html) {
@@ -240,8 +243,7 @@ class APIService: ObservableObject {
     // MARK: - 缺曠記錄
     func fetchAttendance() async throws -> (records: [AbsenceRecord], statistics: AttendanceStatistics, semesterInfo: SemesterInfo?) {
         let school  = try selectedSchool()
-        let url     = try buildSchoolURL(route: school.route.absentation,
-                                         fallback: "/online/selection_student/absentation_skip_school.asp")
+        let url     = try buildSchoolURL(route: school.route.absentation)
         let html    = try await request(url: url)
 
         if needsRelogin(html) {
@@ -267,7 +269,6 @@ class APIService: ObservableObject {
         let school = try selectedSchool()
         let url = try buildSchoolURL(
             route: school.route.semesterScores,
-            fallback: "/online/selection_student/year_accomplishment.asp?action=selection_underside_year&year_class={year_class}&number={number}",
             variables: ["year_class": yearCode, "number": "\(year)"]
         )
         let html = try await request(url: url)
@@ -290,8 +291,7 @@ class APIService: ObservableObject {
         }
 
         let school = try selectedSchool()
-        let url    = try buildSchoolURL(route: school.route.examMenu,
-                                        fallback: "/online/selection_student/student_subjects_number.asp?action=open_window_frame")
+        let url    = try buildSchoolURL(route: school.route.examMenu)
         let html   = try await request(url: url)
 
         if needsRelogin(html) {
@@ -302,8 +302,9 @@ class APIService: ObservableObject {
         // 呼叫解析 API，再以 exam_results 路由 + file_name 組合完整 URL
         let endpoint = try parseEndpoint("exam_menu")
         let response: APIResponse<[ExamMenuItem]> = try await postHTML(to: endpoint, html: html)
-        let examResultsRoute = school.route.examResults
-            ?? "/online/selection_student/{file_name}"
+        guard let examResultsRoute = school.route.examResults else {
+            throw APIError.featureNotSupported
+        }
         let items = response.data.map { item -> ExamMenuItem in
             let path = examResultsRoute.replacingOccurrences(of: "{file_name}", with: item.url)
             return ExamMenuItem(name: item.name, url: item.url, fullURL: school.api + path)
@@ -411,6 +412,7 @@ enum APIError: LocalizedError {
     case parseError
     case networkError
     case noSchoolSelected
+    case featureNotSupported
 
     var errorDescription: String? {
         switch self {
@@ -422,6 +424,8 @@ enum APIError: LocalizedError {
             return "網路連線錯誤"
         case .noSchoolSelected:
             return "請先選擇學校"
+        case .featureNotSupported:
+            return "此功能目前不支援"
         }
     }
 }

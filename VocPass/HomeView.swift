@@ -13,6 +13,7 @@ struct HomeView: View {
     @State private var demerits: [MeritDemeritRecord] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
+    @State private var isUnsupported = false
 
     var body: some View {
         NavigationStack {
@@ -20,6 +21,8 @@ struct HomeView: View {
                 if isLoading {
                     ProgressView("載入中...")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if isUnsupported {
+                    UnsupportedFeatureView()
                 } else if let error = errorMessage {
                     VStack(spacing: 16) {
                         Image(systemName: "exclamationmark.triangle")
@@ -91,6 +94,11 @@ struct HomeView: View {
             await MainActor.run {
                 self.merits = result.merits
                 self.demerits = result.demerits
+                self.isLoading = false
+            }
+        } catch APIError.featureNotSupported {
+            await MainActor.run {
+                self.isUnsupported = true
                 self.isLoading = false
             }
         } catch {

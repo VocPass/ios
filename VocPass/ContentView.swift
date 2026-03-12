@@ -159,6 +159,26 @@ extension Notification.Name {
     static let captchaRecognitionCompleted = Notification.Name("captchaRecognitionCompleted")
 }
 
+// MARK: - 不支援功能畫面
+struct UnsupportedFeatureView: View {
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "nosign")
+                .font(.system(size: 50))
+                .foregroundColor(.secondary)
+            Text("此功能不支援")
+                .font(.headline)
+                .foregroundColor(.secondary)
+            Text("目前選擇的學校尚未支援此功能")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
 #Preview {
     ContentView()
 }

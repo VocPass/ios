@@ -13,6 +13,7 @@ struct AttendanceView: View {
     @State private var subjectAbsences: [SubjectAbsence] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
+    @State private var isUnsupported = false
 
     var body: some View {
         NavigationStack {
@@ -20,6 +21,8 @@ struct AttendanceView: View {
                 if isLoading {
                     ProgressView("載入中...")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if isUnsupported {
+                    UnsupportedFeatureView()
                 } else if let error = errorMessage {
                     VStack(spacing: 16) {
                         Image(systemName: "exclamationmark.triangle")
@@ -113,6 +116,11 @@ struct AttendanceView: View {
             await MainActor.run {
                 self.statistics = result.statistics
                 self.subjectAbsences = result.subjectAbsences
+                self.isLoading = false
+            }
+        } catch APIError.featureNotSupported {
+            await MainActor.run {
+                self.isUnsupported = true
                 self.isLoading = false
             }
         } catch {

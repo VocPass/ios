@@ -13,6 +13,7 @@ struct ScoreView: View {
     @State private var selectedYear = 1
     @State private var isLoading = true
     @State private var errorMessage: String?
+    @State private var isUnsupported = false
 
     var body: some View {
         NavigationStack {
@@ -20,6 +21,8 @@ struct ScoreView: View {
                 if isLoading {
                     ProgressView("載入中...")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if isUnsupported {
+                    UnsupportedFeatureView()
                 } else if let error = errorMessage {
                     VStack(spacing: 16) {
                         Image(systemName: "exclamationmark.triangle")
@@ -106,6 +109,11 @@ struct ScoreView: View {
             let result = try await apiService.fetchYearScore(year: selectedYear)
             await MainActor.run {
                 self.gradeData = result
+                self.isLoading = false
+            }
+        } catch APIError.featureNotSupported {
+            await MainActor.run {
+                self.isUnsupported = true
                 self.isLoading = false
             }
         } catch {
@@ -264,12 +272,15 @@ struct ExamScoreView: View {
     @State private var isLoading = true
     @State private var isLoadingDetail = false
     @State private var errorMessage: String?
+    @State private var isUnsupported = false
 
     var body: some View {
         Group {
             if isLoading {
                 ProgressView("載入中...")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if isUnsupported {
+                UnsupportedFeatureView()
             } else if let error = errorMessage {
                 VStack(spacing: 16) {
                     Image(systemName: "exclamationmark.triangle")
@@ -376,6 +387,11 @@ struct ExamScoreView: View {
             let result = try await apiService.fetchExamMenu(forceRefresh: forceRefresh)
             await MainActor.run {
                 self.examMenu = result
+                self.isLoading = false
+            }
+        } catch APIError.featureNotSupported {
+            await MainActor.run {
+                self.isUnsupported = true
                 self.isLoading = false
             }
         } catch {

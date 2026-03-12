@@ -14,6 +14,7 @@ struct CurriculumView: View {
     @State private var curriculum: [String: CourseInfo] = [:]
     @State private var isLoading = true
     @State private var errorMessage: String?
+    @State private var isUnsupported = false
 
     private let weekdays = ["一", "二", "三", "四", "五"]
     private let periods = ["一", "二", "三", "四", "五", "六", "七"]
@@ -24,6 +25,8 @@ struct CurriculumView: View {
                 if isLoading {
                     ProgressView("載入中...")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if isUnsupported {
+                    UnsupportedFeatureView()
                 } else if let error = errorMessage {
                     VStack(spacing: 16) {
                         Image(systemName: "exclamationmark.triangle")
@@ -206,6 +209,11 @@ struct CurriculumView: View {
             await MainActor.run {
                 self.curriculum = timetable.curriculum
                 DynamicIslandService.shared.setTimetable(timetable)
+                self.isLoading = false
+            }
+        } catch APIError.featureNotSupported {
+            await MainActor.run {
+                self.isUnsupported = true
                 self.isLoading = false
             }
         } catch {
