@@ -25,8 +25,6 @@
 | ⭐ **獎懲記錄** | 功過明細、核定日期、銷過狀態完整呈現 |
 | 🏝️ **Dynamic Island** | 課表即時活動顯示，當前與下一節課盡在靈動島 |
 | 🔐 **驗證碼自動辨識** | 使用 Vision OCR 自動辨識登入驗證碼，免除手動輸入 |
-| 🔒 **本地隱私保護** | 所有資料於本機處理，不經過任何第三方伺服器 |
-| ☁️ **離線快取** | 成績、課表資料快取 24 小時，無網路也能查閱 |
 
 ---
 
@@ -39,13 +37,7 @@
 
 ## 🏫 支援學校
 
-目前透過 `schools.json` 動態設定，已支援：
-
-- 鶯歌工商
-- 三重商工
-- 新北高工
-
-> 其他學校可透過提交 PR 新增至 `schools.json` 以擴充支援。
+學校擴充支援請至 Server查看。
 
 ---
 
@@ -89,8 +81,7 @@ VocPass/
 │   ├── HTMLParser.swift            # HTML 解析
 │   ├── Models.swift                # 資料模型
 │   └── *View.swift                 # SwiftUI 畫面
-├── VocPassWidget/              # Dynamic Island & Widget 擴充
-└── schools.json                # 學校設定檔（可擴充）
+└── VocPassWidget/              # Dynamic Island & Widget 擴充
 ```
 
 ---
