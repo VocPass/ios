@@ -22,6 +22,7 @@ final class DynamicIslandService: ObservableObject {
     @Published var currentSubject: String = ""
     @Published var nextSubject: String = ""
     @Published var currentPeriod: String = ""
+    @Published var lastErrorMessage: String?
 
     private var activity: Activity<ClassScheduleActivityAttributes>?
     private var updateTask: Task<Void, Never>?
@@ -31,6 +32,19 @@ final class DynamicIslandService: ObservableObject {
         "早讀": 0,
         "一": 1, "二": 2, "三": 3, "四": 4,
         "五": 5, "六": 6, "七": 7, "八": 8, "九": 9
+    ]
+
+    private static let fallbackPeriodTimes: [String: PeriodTime] = [
+        "早讀": PeriodTime(startTime: "07:30", endTime: "08:00"),
+        "一": PeriodTime(startTime: "08:10", endTime: "09:00"),
+        "二": PeriodTime(startTime: "09:10", endTime: "10:00"),
+        "三": PeriodTime(startTime: "10:10", endTime: "11:00"),
+        "四": PeriodTime(startTime: "11:10", endTime: "12:00"),
+        "五": PeriodTime(startTime: "13:10", endTime: "14:00"),
+        "六": PeriodTime(startTime: "14:10", endTime: "15:00"),
+        "七": PeriodTime(startTime: "15:10", endTime: "16:00"),
+        "八": PeriodTime(startTime: "16:10", endTime: "17:00"),
+        "九": PeriodTime(startTime: "17:10", endTime: "18:00")
     ]
 
     private static let weekdayMap: [Int: String] = [
@@ -83,12 +97,42 @@ final class DynamicIslandService: ObservableObject {
             .filter { $0.weekday == todayWeekday }
             .sorted { (Self.periodOrder[$0.period] ?? 99) < (Self.periodOrder[$1.period] ?? 99) }
             .compactMap { entry -> Slot? in
-                guard let pt = timetable.periodTimes[entry.period],
+                guard let pt = periodTime(for: entry.period, in: timetable),
                       let start = Self.parseTime(pt.startTime, on: date, calendar: calendar),
                       let end   = Self.parseTime(pt.endTime,   on: date, calendar: calendar)
                 else { return nil }
                 return Slot(entry: entry, start: start, end: end)
             }
+    }
+
+    private func periodTime(for period: String, in timetable: TimetableData) -> PeriodTime? {
+        if let direct = timetable.periodTimes[period] { return direct }
+        if let fallback = Self.fallbackPeriodTimes[period] { return fallback }
+
+        let normalized = Self.normalizePeriod(period)
+        if let fromTimetable = timetable.periodTimes[normalized] { return fromTimetable }
+        return Self.fallbackPeriodTimes[normalized]
+    }
+
+    private static func normalizePeriod(_ raw: String) -> String {
+        let trimmed = raw
+            .replacingOccurrences(of: "第", with: "")
+            .replacingOccurrences(of: "節", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        switch trimmed {
+        case "0", "０": return "早讀"
+        case "1", "１": return "一"
+        case "2", "２": return "二"
+        case "3", "３": return "三"
+        case "4", "４": return "四"
+        case "5", "５": return "五"
+        case "6", "６": return "六"
+        case "7", "７": return "七"
+        case "8", "８": return "八"
+        case "9", "９": return "九"
+        default: return trimmed
+        }
     }
 
     private func computeNextStaleDate(from now: Date = Date()) -> Date? {
@@ -209,10 +253,12 @@ final class DynamicIslandService: ObservableObject {
 
     func startActivity(className: String) async {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else {
+            lastErrorMessage = "系統未允許 Live Activities，請到「設定 > Face ID 與密碼 > 即時動態」開啟。"
             print("⚡ [DI] Live Activities 未授權")
             return
         }
         guard activity == nil else {
+            lastErrorMessage = nil
             print("⚡ [DI] 活動已在進行中")
             return
         }
@@ -235,10 +281,12 @@ final class DynamicIslandService: ObservableObject {
             )
             activity = newActivity
             isActivityRunning = true
+            lastErrorMessage = nil
             print("⚡ [DI] Live Activity 已啟動：\(newActivity.id)")
             startUpdateLoop()
             scheduleNextBGRefresh()
         } catch {
+            lastErrorMessage = error.localizedDescription
             print("⚡ [DI] 無法啟動 Live Activity：\(error)")
         }
     }
@@ -252,7 +300,9 @@ final class DynamicIslandService: ObservableObject {
         nextSubject    = state.nextSubject
         currentPeriod  = state.currentPeriod
         let content = ActivityContent(state: state, staleDate: computeNextStaleDate())
-        Task.detached(priority: .utility) { await act.update(content) }
+        Task { @MainActor in
+            await act.update(content)
+        }
         print("⚡ [DI] 已更新：\(state.currentSubject.isEmpty ? "下課中" : state.currentSubject) → \(state.nextSubject.isEmpty ? "今天結束" : state.nextSubject)")
     }
 
@@ -266,9 +316,10 @@ final class DynamicIslandService: ObservableObject {
         scheduleNextBGRefresh()
         let finalState = ClassScheduleActivityAttributes.ContentState(
             currentPeriod: "", currentSubject: "", currentStartTime: nil,
-            currentEndTime: nil, nextPeriod: "", nextSubject: "", nextStartTime: nil
+            currentEndTime: nil, nextPeriod: "", nextSubject: "", nextStartTime: nil,
+            todaySlots: []
         )
-        Task.detached(priority: .utility) {
+        Task { @MainActor in
             await act.end(
                 ActivityContent(state: finalState, staleDate: nil),
                 dismissalPolicy: .immediate
@@ -318,7 +369,8 @@ final class DynamicIslandService: ObservableObject {
         guard !slots.isEmpty else {
             return ClassScheduleActivityAttributes.ContentState(
                 currentPeriod: "", currentSubject: "", currentStartTime: nil,
-                currentEndTime: nil, nextPeriod: "", nextSubject: "", nextStartTime: nil
+                currentEndTime: nil, nextPeriod: "", nextSubject: "", nextStartTime: nil,
+                todaySlots: []
             )
         }
 
@@ -331,6 +383,15 @@ final class DynamicIslandService: ObservableObject {
             afterCurrent = slots.first { $0.start > date }
         }
 
+        let daySlots = slots.map {
+            ClassScheduleActivityAttributes.ContentState.DaySlot(
+                period: $0.entry.period,
+                subject: $0.entry.subject,
+                startTime: $0.start,
+                endTime: $0.end
+            )
+        }
+
         return ClassScheduleActivityAttributes.ContentState(
             currentPeriod:    current?.entry.period  ?? "",
             currentSubject:   current?.entry.subject ?? "",
@@ -338,7 +399,8 @@ final class DynamicIslandService: ObservableObject {
             currentEndTime:   current?.end,
             nextPeriod:       afterCurrent?.entry.period  ?? "",
             nextSubject:      afterCurrent?.entry.subject ?? "",
-            nextStartTime:    afterCurrent?.start
+            nextStartTime:    afterCurrent?.start,
+            todaySlots:       daySlots
         )
     }
 

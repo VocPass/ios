@@ -155,8 +155,16 @@ struct SettingsView: View {
                 } header: {
                     Text("即時動態 / 動態島")
                 } footer: {
-                    Text("開啟後，每天第一節課前 \(minutesBefore) 分鐘自動顯示動態島課表；放學後自動結束。")
-                        .font(.caption)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("開啟後，每天第一節課前 \(minutesBefore) 分鐘自動顯示動態島課表；放學後自動結束。")
+                            .font(.caption)
+
+                        if let err = dynamicIsland.lastErrorMessage, !err.isEmpty {
+                            Text("啟動失敗：\(err)")
+                                .font(.caption2)
+                                .foregroundStyle(.red)
+                        }
+                    }
                 }
 
                 Section("關於") {

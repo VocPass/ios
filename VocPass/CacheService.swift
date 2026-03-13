@@ -197,7 +197,7 @@ class CacheService {
     }
 
     // MARK: - Timetable Cache
-    private let timetableParserVersion = "v2"
+    private let timetableParserVersion = "v3"
     private let timetableParserVersionKey = "timetable_parser_version"
 
     func invalidateTimetableCacheIfNeeded() {
