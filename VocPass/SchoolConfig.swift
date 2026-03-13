@@ -34,20 +34,10 @@ struct SchoolConfig: Codable, Identifiable {
 
 // MARK: - 路由配置
 struct RouteConfig: Codable {
-    let meritDemerit: String?   // 獎懲記錄
-    let curriculum: String?     // 課表（JSON key: curriculum）
-    let absentation: String?    // 缺曠記錄（JSON key: attendance）
-    let examMenu: String?       // 考試選單
     let examResults: String?    // 考試成績（含 {file_name} 變數）
-    let semesterScores: String? // 學年成績（含 {year_class}、{number} 變數）
 
     enum CodingKeys: String, CodingKey {
-        case meritDemerit  = "merit_demerit"
-        case curriculum
-        case absentation   = "attendance"
-        case examMenu      = "exam_menu"
         case examResults   = "exam_results"
-        case semesterScores = "semester_scores"
     }
 }
 
@@ -96,7 +86,7 @@ class SchoolConfigManager: ObservableObject {
     @Published var error: String?
     
     // 遠端 API URL
-    private let apiURL = "https://raw.githubusercontent.com/VocPass/ios/refs/heads/main/schools.json"
+    private let apiURL = "https://vocpass.zeabur.app/school"
 
     private var currentAppVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
@@ -216,12 +206,7 @@ class SchoolConfigManager: ObservableObject {
     // 預設學校配置
     private func loadDefaultSchools() {
         let defaultRoute = RouteConfig(
-            meritDemerit: "/online/selection_student/moralculture_%20bonuspenalty.asp",
-            curriculum: "/online/selection_student/school_class_tabletime.asp",
-            absentation: "/online/student/absentation_skip_school.asp",
-            examMenu: "/online/selection_student/student_subjects_number.asp?action=open_window_frame",
-            examResults: "/online/selection_student/{file_name}",
-            semesterScores: "/online/selection_student/year_accomplishment.asp?action=selection_underside_year&year_class={year_class}&number={number}"
+            examResults: "/online/selection_student/{file_name}"
         )
         schools = [
             SchoolConfig(

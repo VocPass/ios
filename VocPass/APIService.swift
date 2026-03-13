@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import WebKit
 import Combine
 
 class APIService: ObservableObject {
@@ -41,24 +40,47 @@ class APIService: ObservableObject {
         return school
     }
 
-    // MARK: - 組合學校路由 URL（route 為 nil 時拋出 featureNotSupported）
-    private func buildSchoolURL(route: String?,
-                                variables: [String: String] = [:]) throws -> String {
-        guard let route else {
-            throw APIError.featureNotSupported
-        }
+    // MARK: - 以代理 API GET（cookies 直接放 Header）
+    private func proxyGet<T: Decodable>(path: String,
+                                        extraQueryItems: [URLQueryItem] = []) async throws -> APIResponse<T> {
         let school = try selectedSchool()
-        var routePath = route
-        for (key, value) in variables {
-            routePath = routePath.replacingOccurrences(of: "{\(key)}", with: value)
-        }
-        return school.api + routePath
-    }
 
-    // MARK: - 組合 VocPass 解析 API 端點
-    private func parseEndpoint(_ path: String) throws -> String {
-        let school = try selectedSchool()
-        return "\(vocPassAPIHost)/api/\(school.vision)/\(path)"
+        guard !cookieString.isEmpty else {
+            throw APIError.sessionExpired
+        }
+
+        guard var components = URLComponents(string: "\(vocPassAPIHost)/api/\(school.vision)/\(path)") else {
+            throw URLError(.badURL)
+        }
+
+        var items = [URLQueryItem(name: "school_name", value: school.name)]
+        items.append(contentsOf: extraQueryItems)
+        components.queryItems = items
+
+        guard let url = components.url else {
+            throw URLError(.badURL)
+        }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "GET"
+        req.setValue(cookieString, forHTTPHeaderField: "Cookie")
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        let (data, response) = try await URLSession.shared.data(for: req)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw URLError(.badServerResponse)
+        }
+
+        guard httpResponse.statusCode == 200 else {
+            if let detail = String(data: data, encoding: .utf8) {
+                print("❌ [API] Proxy API error (\(httpResponse.statusCode)): \(detail)")
+            } else {
+                print("❌ [API] Proxy API error (\(httpResponse.statusCode))")
+            }
+            throw URLError(.badServerResponse)
+        }
+
+        return try JSONDecoder().decode(APIResponse<T>.self, from: data)
     }
 
     // MARK: - 向學校伺服器 GET HTML
@@ -107,42 +129,6 @@ class APIService: ObservableObject {
         throw URLError(.cannotDecodeContentData)
     }
 
-    // MARK: - 向 VocPass 解析 API POST 內容，回傳解析後的資料
-    // 若 content 為 JSON 格式則以 {"data": ...} 送出，否則以 {"html": "..."} 送出
-    private func postContent<T: Decodable>(to endpoint: String, content: String) async throws -> T {
-        guard let url = URL(string: endpoint) else {
-            print("❌ [API] Invalid endpoint: \(endpoint)")
-            throw URLError(.badURL)
-        }
-
-        print("📤 [API] POST: \(endpoint)")
-
-        var req = URLRequest(url: url)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
-        if let rawData = content.data(using: .utf8),
-           let jsonObject = try? JSONSerialization.jsonObject(with: rawData),
-           JSONSerialization.isValidJSONObject(jsonObject) {
-            req.httpBody = try JSONSerialization.data(withJSONObject: ["data": jsonObject])
-            print("📦 [API] Sending as JSON data")
-        } else {
-            req.httpBody = try JSONEncoder().encode(["html": content])
-            print("📦 [API] Sending as HTML")
-        }
-
-        let (data, response) = try await URLSession.shared.data(for: req)
-
-        guard let httpResponse = response as? HTTPURLResponse,
-              httpResponse.statusCode == 200 else {
-            print("❌ [API] Parse API error")
-            throw URLError(.badServerResponse)
-        }
-
-        print("✅ [API] Parse API response: \(data.count) bytes")
-        return try JSONDecoder().decode(T.self, from: data)
-    }
-
     private func needsRelogin(_ html: String) -> Bool {
         return html.contains("重新登入")
     }
@@ -186,17 +172,7 @@ class APIService: ObservableObject {
 
     // MARK: - 獎懲記錄
     func fetchMeritDemeritRecords() async throws -> (merits: [MeritDemeritRecord], demerits: [MeritDemeritRecord]) {
-        let school  = try selectedSchool()
-        let url     = try buildSchoolURL(route: school.route.meritDemerit)
-        let html    = try await request(url: url)
-
-        if needsRelogin(html) {
-            await MainActor.run { self.isLoggedIn = false }
-            throw APIError.sessionExpired
-        }
-
-        let endpoint = try parseEndpoint("merit_demerit")
-        let response: APIResponse<[[MeritDemeritRecord]]> = try await postContent(to: endpoint, content: html)
+        let response: APIResponse<[[MeritDemeritRecord]]> = try await proxyGet(path: "merit_demerit")
 
         let merits   = response.data.count > 0 ? response.data[0] : []
         let demerits = response.data.count > 1 ? response.data[1] : []
@@ -209,20 +185,8 @@ class APIService: ObservableObject {
             return cached
         }
 
-        let school  = try selectedSchool()
-        guard let curriculumRoute = school.route.curriculum else {
-            throw APIError.featureNotSupported
-        }
-        let url     = school.api + curriculumRoute + "?teacher_classnumber=\(classNumber)"
-        let html    = try await request(url: url)
-
-        if needsRelogin(html) {
-            await MainActor.run { self.isLoggedIn = false }
-            throw APIError.sessionExpired
-        }
-
-        let endpoint = try parseEndpoint("curriculum")
-        let response: APIResponse<[String: CourseInfo]> = try await postContent(to: endpoint, content: html)
+        _ = classNumber
+        let response: APIResponse<[String: CourseInfo]> = try await proxyGet(path: "curriculum")
 
         let curriculum = response.data
 
@@ -252,17 +216,7 @@ class APIService: ObservableObject {
 
     // MARK: - 缺曠記錄
     func fetchAttendance() async throws -> (records: [AbsenceRecord], statistics: AttendanceStatistics, semesterInfo: SemesterInfo?) {
-        let school  = try selectedSchool()
-        let url     = try buildSchoolURL(route: school.route.absentation)
-        let html    = try await request(url: url)
-
-        if needsRelogin(html) {
-            await MainActor.run { self.isLoggedIn = false }
-            throw APIError.sessionExpired
-        }
-
-        let endpoint = try parseEndpoint("attendance")
-        let response: APIResponse<[AbsenceRecord]> = try await postContent(to: endpoint, content: html)
+        let response: APIResponse<[AbsenceRecord]> = try await proxyGet(path: "attendance")
 
         let records     = response.data
         let statistics  = computeAttendanceStatistics(from: records)
@@ -273,24 +227,11 @@ class APIService: ObservableObject {
 
     // MARK: - 學年成績
     func fetchYearScore(year: Int = 1) async throws -> GradeData {
-        let yearCodes = ["1": "%A4%40", "2": "%A4G", "3": "%A4T", "4": "%A5%7C"]
-        let yearCode  = yearCodes["\(year)"] ?? "%A4%40"
-
-        let school = try selectedSchool()
-        let url = try buildSchoolURL(
-            route: school.route.semesterScores,
-            variables: ["year_class": yearCode, "number": "\(year)"]
+        let semester = min(max(year, 1), 3)
+        let response: APIResponse<GradeData> = try await proxyGet(
+            path: "semester_scores",
+            extraQueryItems: [URLQueryItem(name: "semester", value: "\(semester)")]
         )
-        let html = try await request(url: url)
-
-        if needsRelogin(html) {
-            await MainActor.run { self.isLoggedIn = false }
-            throw APIError.sessionExpired
-        }
-
-        // 呼叫解析 API
-        let endpoint = try parseEndpoint("semester_scores")
-        let response: APIResponse<GradeData> = try await postContent(to: endpoint, content: html)
         return response.data
     }
 
@@ -301,17 +242,8 @@ class APIService: ObservableObject {
         }
 
         let school = try selectedSchool()
-        let url    = try buildSchoolURL(route: school.route.examMenu)
-        let html   = try await request(url: url)
 
-        if needsRelogin(html) {
-            await MainActor.run { self.isLoggedIn = false }
-            throw APIError.sessionExpired
-        }
-
-        // 呼叫解析 API，再以 exam_results 路由 + file_name 組合完整 URL
-        let endpoint = try parseEndpoint("exam_menu")
-        let response: APIResponse<[ExamMenuItem]> = try await postContent(to: endpoint, content: html)
+        let response: APIResponse<[ExamMenuItem]> = try await proxyGet(path: "exam_menu")
         guard let examResultsRoute = school.route.examResults else {
             throw APIError.featureNotSupported
         }
@@ -425,8 +357,6 @@ class APIService: ObservableObject {
 // MARK: - 錯誤類型
 enum APIError: LocalizedError {
     case sessionExpired
-    case parseError
-    case networkError
     case noSchoolSelected
     case featureNotSupported
 
@@ -434,10 +364,6 @@ enum APIError: LocalizedError {
         switch self {
         case .sessionExpired:
             return "登入已過期，請重新登入"
-        case .parseError:
-            return "資料解析錯誤"
-        case .networkError:
-            return "網路連線錯誤"
         case .noSchoolSelected:
             return "請先選擇學校"
         case .featureNotSupported:
