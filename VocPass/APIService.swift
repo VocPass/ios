@@ -13,7 +13,13 @@ class APIService: ObservableObject {
 
     private let weeksPerSemester = 18
 
-    private let vocPassAPIHost = "https://vocpass.zeabur.app"
+    private var vocPassAPIHost: String {
+        #if DEBUG
+        return "https://vocpass-dev.zeabur.app"
+        #else
+        return "https://vocpass.zeabur.app"
+        #endif
+    }
 
     @Published var cookies: [HTTPCookie] = []
     @Published var isLoggedIn = false
