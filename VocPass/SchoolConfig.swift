@@ -53,15 +53,75 @@ struct LoginConfig: Codable {
     let captcha: FieldConfig
     let captchaImage: CaptchaImageConfig?
     let button: ButtonConfig
+
+    init(username: FieldConfig,
+         password: FieldConfig,
+         captcha: FieldConfig,
+         captchaImage: CaptchaImageConfig?,
+         button: ButtonConfig) {
+        self.username = username
+        self.password = password
+        self.captcha = captcha
+        self.captchaImage = captchaImage
+        self.button = button
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        username = try container.decode(FieldConfig.self, forKey: .username)
+        password = try container.decode(FieldConfig.self, forKey: .password)
+        captcha = try container.decodeIfPresent(FieldConfig.self, forKey: .captcha) ?? FieldConfig(name: "")
+        captchaImage = try? container.decode(CaptchaImageConfig.self, forKey: .captchaImage)
+        button = try container.decodeIfPresent(ButtonConfig.self, forKey: .button) ?? ButtonConfig(class: "")
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case username, password, captcha, captchaImage, button
+    }
 }
 
 struct FieldConfig: Codable {
     let name: String
+
+    init(name: String) {
+        self.name = name
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case name
+    }
 }
 
 struct CaptchaImageConfig: Codable {
     let selector: String 
     let type: String
+
+    init(selector: String, type: String) {
+        self.selector = selector
+        self.type = type
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let selector = try container.decodeIfPresent(String.self, forKey: .selector) ?? ""
+        let type = try container.decodeIfPresent(String.self, forKey: .type) ?? ""
+
+        if selector.isEmpty, type.isEmpty {
+            throw DecodingError.valueNotFound(
+                String.self,
+                DecodingError.Context(codingPath: decoder.codingPath,
+                                      debugDescription: "Empty captchaImage config")
+            )
+        }
+
+        self.selector = selector
+        self.type = type
+    }
     
     enum CodingKeys: String, CodingKey {
         case selector, type
@@ -70,6 +130,15 @@ struct CaptchaImageConfig: Codable {
 
 struct ButtonConfig: Codable {
     let `class`: String
+
+    init(class: String) {
+        self.class = `class`
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.class = try container.decodeIfPresent(String.self, forKey: .class) ?? ""
+    }
     
     enum CodingKeys: String, CodingKey {
         case `class` = "class"
@@ -86,7 +155,7 @@ class SchoolConfigManager: ObservableObject {
     @Published var error: String?
     
     // 遠端 API URL
-    private let apiURL = "https://vocpass.zeabur.app/school"
+    private let apiURL: String = AppConfig.vocPassAPIHost + "/school"
 
     private var currentAppVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"

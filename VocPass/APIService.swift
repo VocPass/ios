@@ -13,14 +13,6 @@ class APIService: ObservableObject {
 
     private let weeksPerSemester = 18
 
-    private var vocPassAPIHost: String {
-        #if DEBUG
-        return "https://vocpass-dev.zeabur.app"
-        #else
-        return "https://vocpass.zeabur.app"
-        #endif
-    }
-
     @Published var cookies: [HTTPCookie] = []
     @Published var isLoggedIn = false
 
@@ -55,7 +47,7 @@ class APIService: ObservableObject {
             throw APIError.sessionExpired
         }
 
-        guard var components = URLComponents(string: "\(vocPassAPIHost)/api/\(school.vision)/\(path)") else {
+        guard var components = URLComponents(string: "\(AppConfig.vocPassAPIHost)/api/\(school.vision)/\(path)") else {
             throw URLError(.badURL)
         }
 
