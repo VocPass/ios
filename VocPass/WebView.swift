@@ -162,22 +162,18 @@ struct WebView: UIViewRepresentable {
                 var passwordFieldName = '\(passwordFieldName)';
                 var captchaFieldName = '\(captchaFieldName)';
                 
-                var loginBtn = buttonClass
-                    ? form.querySelector('.' + buttonClass)
-                    : form.querySelector('button, input[type="submit"]');
+                var loginBtn = form.querySelector('.' + buttonClass);
+                if (!loginBtn) return;
+
                 var usernameField = form.querySelector('input[name="' + usernameFieldName + '"]');
                 var passwordField = form.querySelector('input[name="' + passwordFieldName + '"]');
-                if (!loginBtn && !(usernameField || passwordField)) return;
-
-                var captchaField = captchaFieldName
-                    ? form.querySelector('input[name="' + captchaFieldName + '"]')
-                    : null;
+                var captchaField = form.querySelector('input[name="' + captchaFieldName + '"]');
                 
                 var username = usernameField ? usernameField.value : '';
                 var password = passwordField ? passwordField.value : '';
                 var captcha = captchaField ? captchaField.value : '';
 
-                if (captchaField && (!captcha || captcha.trim() === '')) {
+                if (!captcha || captcha.trim() === '') {
                     return;
                 }
 
@@ -210,6 +206,17 @@ struct WebView: UIViewRepresentable {
         var parent: WebView
         private var hasLoggedIn = false
         var currentWebView: WKWebView?
+
+        private let defaultLoginSuccessKeywords = [
+            "登出", "logout"
+        ]
+
+        private var loginSuccessKeywords: [String] {
+            let fromAPI = parent.school.login.successKeywords?.filter {
+                !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            } ?? []
+            return fromAPI.isEmpty ? defaultLoginSuccessKeywords : fromAPI
+        }
 
         init(_ parent: WebView) {
             self.parent = parent
@@ -293,31 +300,13 @@ struct WebView: UIViewRepresentable {
             guard let currentURL = webView.url?.absoluteString else { return }
             print("🌐 [WebView] 載入完成: \(currentURL)")
 
-            let currentPath = webView.url?.path.lowercased() ?? currentURL.lowercased()
-            let successPath = URL(string: parent.school.loginedURL)?.path.lowercased() ?? parent.school.loginedURL.lowercased()
-            let loginPath = URL(string: parent.school.api + parent.school.url.login)?.path.lowercased() ?? parent.school.url.login.lowercased()
-            let isOnLoginPage = currentPath.contains(loginPath)
-            let isOnSuccessPage = !isOnLoginPage && (
-                currentPath == successPath ||
-                currentPath.hasPrefix(successPath + "/")
-            )
+            let keywordScript = "(document.body && document.body.innerText) ? document.body.innerText : ''"
+            webView.evaluateJavaScript(keywordScript) { result, _ in
+                let pageText = (result as? String ?? "").lowercased()
+                let matchedKeyword = self.loginSuccessKeywords.first { pageText.contains($0.lowercased()) }
 
-            if isOnSuccessPage && !hasLoggedIn {
-                evaluateLoginFormPresence(in: webView) { [weak self] hasLoginForm in
-                    guard let self else { return }
-
-                    if hasLoginForm {
-                        print("ℹ️ [WebView] 仍偵測到登入表單，暫不判定為登入成功")
-                        webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { cookies in
-                            DispatchQueue.main.async {
-                                self.parent.cookies = cookies
-                                self.parent.isLoggingIn = false
-                            }
-                        }
-                        return
-                    }
-
-                    print("✅ [WebView] 偵測到登入成功頁面，等待 cookies 載入...")
+                if let matchedKeyword, !self.hasLoggedIn {
+                    print("✅ [WebView] 偵測到登入成功關鍵字: \(matchedKeyword)，等待 cookies 載入...")
 
                     webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { cookies in
                         print("🍪 [WebView] 登入成功頁面 cookies 數量: \(cookies.count)")
@@ -333,13 +322,14 @@ struct WebView: UIViewRepresentable {
                             print("🔐 [WebView] 登入狀態已設定為 true")
                         }
                     }
-                }
-            } else {
-                webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { cookies in
-                    DispatchQueue.main.async {
-                        self.parent.cookies = cookies
-                        if isOnLoginPage {
-                            self.parent.isLoggingIn = false
+                } else {
+                    webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { cookies in
+                        DispatchQueue.main.async {
+                            self.parent.cookies = cookies
+                            let loginPath = self.parent.school.url.login.lowercased()
+                            if currentURL.lowercased().contains(loginPath) {
+                                self.parent.isLoggingIn = false
+                            }
                         }
                     }
                 }
@@ -357,29 +347,6 @@ struct WebView: UIViewRepresentable {
             print("❌ [WebView] 載入過程失敗: \(error.localizedDescription)")
             DispatchQueue.main.async {
                 self.parent.isLoggingIn = false
-            }
-        }
-
-        private func evaluateLoginFormPresence(in webView: WKWebView, completion: @escaping (Bool) -> Void) {
-            let usernameFieldName = parent.school.login.username.name
-            let passwordFieldName = parent.school.login.password.name
-
-            let script = """
-            (function() {
-                var usernameField = document.querySelector('input[name="\(usernameFieldName)"]');
-                var passwordField = document.querySelector('input[name="\(passwordFieldName)"]') || document.querySelector('input[type="password"]');
-                return !!(usernameField && passwordField);
-            })();
-            """
-
-            webView.evaluateJavaScript(script) { result, error in
-                if let error {
-                    print("⚠️ [WebView] 判斷登入表單狀態失敗: \(error.localizedDescription)")
-                    completion(false)
-                    return
-                }
-
-                completion(result as? Bool ?? false)
             }
         }
     }

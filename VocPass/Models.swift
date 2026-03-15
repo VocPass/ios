@@ -32,6 +32,70 @@ struct MeritDemeritRecord: Identifiable, Codable {
         case dateRevoked   = "date_revoked"
         case year
     }
+
+    private enum AlternateCodingKeys: String, CodingKey {
+        case dateOccurred = "dateOccurred"
+        case dateApproved = "dateApproved"
+        case dateRevoked = "dateRevoked"
+        case schoolYear = "school_year"
+        case academicYear = "academic_year"
+        case content
+        case type
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let alt = try decoder.container(keyedBy: AlternateCodingKeys.self)
+
+        dateOccurred = (try? c.decodeLossyString(forKey: .dateOccurred))
+            ?? (try? alt.decodeLossyString(forKey: .dateOccurred))
+            ?? ""
+        dateApproved = (try? c.decodeLossyString(forKey: .dateApproved))
+            ?? (try? alt.decodeLossyString(forKey: .dateApproved))
+            ?? ""
+        reason = (try? c.decodeLossyString(forKey: .reason)) ?? ""
+        action = (try? c.decodeLossyString(forKey: .action))
+            ?? (try? alt.decodeLossyString(forKey: .content))
+            ?? (try? alt.decodeLossyString(forKey: .type))
+            ?? ""
+        dateRevoked = (try? c.decodeLossyStringIfPresent(forKey: .dateRevoked))
+            ?? (try? alt.decodeLossyStringIfPresent(forKey: .dateRevoked))
+        year = (try? c.decodeLossyString(forKey: .year))
+            ?? (try? alt.decodeLossyString(forKey: .schoolYear))
+            ?? (try? alt.decodeLossyString(forKey: .academicYear))
+            ?? ""
+    }
+}
+
+private extension KeyedDecodingContainer {
+    func decodeLossyString(forKey key: Key) throws -> String {
+        if let value = try? decode(String.self, forKey: key) {
+            return value
+        }
+        if let value = try? decode(Int.self, forKey: key) {
+            return String(value)
+        }
+        if let value = try? decode(Double.self, forKey: key) {
+            return String(value)
+        }
+        if let value = try? decode(Bool.self, forKey: key) {
+            return value ? "true" : "false"
+        }
+        throw DecodingError.typeMismatch(
+            String.self,
+            DecodingError.Context(codingPath: codingPath + [key], debugDescription: "Value is not convertible to String")
+        )
+    }
+
+    func decodeLossyStringIfPresent(forKey key: Key) throws -> String? {
+        if !contains(key) {
+            return nil
+        }
+        if (try? decodeNil(forKey: key)) == true {
+            return nil
+        }
+        return try decodeLossyString(forKey: key)
+    }
 }
 
 // MARK: - 缺曠記錄

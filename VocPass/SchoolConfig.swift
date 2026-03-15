@@ -34,7 +34,7 @@ struct SchoolConfig: Codable, Identifiable {
 
 // MARK: - 路由配置
 struct RouteConfig: Codable {
-    let examResults: String?    // 考試成績（含 {file_name} 變數）
+    let examResults: String?
 
     enum CodingKeys: String, CodingKey {
         case examResults   = "exam_results"
@@ -53,30 +53,86 @@ struct LoginConfig: Codable {
     let captcha: FieldConfig
     let captchaImage: CaptchaImageConfig?
     let button: ButtonConfig
+    let successKeywords: [String]?
 
     init(username: FieldConfig,
          password: FieldConfig,
          captcha: FieldConfig,
          captchaImage: CaptchaImageConfig?,
-         button: ButtonConfig) {
+         button: ButtonConfig,
+         successKeywords: [String]? = nil) {
         self.username = username
         self.password = password
         self.captcha = captcha
         self.captchaImage = captchaImage
         self.button = button
+        self.successKeywords = successKeywords?.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        let aliasContainer = try decoder.container(keyedBy: AnyCodingKey.self)
         username = try container.decode(FieldConfig.self, forKey: .username)
         password = try container.decode(FieldConfig.self, forKey: .password)
         captcha = try container.decodeIfPresent(FieldConfig.self, forKey: .captcha) ?? FieldConfig(name: "")
         captchaImage = try? container.decode(CaptchaImageConfig.self, forKey: .captchaImage)
         button = try container.decodeIfPresent(ButtonConfig.self, forKey: .button) ?? ButtonConfig(class: "")
+
+        func decodeStringArray(_ key: String) -> [String]? {
+            guard let codingKey = AnyCodingKey(key) else { return nil }
+            return try? aliasContainer.decode([String].self, forKey: codingKey)
+        }
+
+        func decodeString(_ key: String) -> String? {
+            guard let codingKey = AnyCodingKey(key) else { return nil }
+            return try? aliasContainer.decode(String.self, forKey: codingKey)
+        }
+
+        let keywordArray =
+            (try? container.decode([String].self, forKey: .successKeywords)) ??
+            decodeStringArray("success_keywords") ??
+            decodeStringArray("loginSuccessKeywords") ??
+            decodeStringArray("login_success_keywords")
+
+        let keywordString =
+            (try? container.decode(String.self, forKey: .successKeywords)) ??
+            decodeString("success_keywords") ??
+            decodeString("loginSuccessKeywords") ??
+            decodeString("login_success_keywords")
+
+        let parsedFromString = keywordString?
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        let parsed = (keywordArray ?? parsedFromString ?? []).filter {
+            !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        successKeywords = parsed.isEmpty ? nil : parsed
     }
 
     enum CodingKeys: String, CodingKey {
         case username, password, captcha, captchaImage, button
+        case successKeywords
+    }
+
+    private struct AnyCodingKey: CodingKey {
+        var stringValue: String
+        var intValue: Int?
+
+        init?(_ string: String) {
+            self.stringValue = string
+            self.intValue = nil
+        }
+
+        init?(stringValue: String) {
+            self.stringValue = stringValue
+            self.intValue = nil
+        }
+
+        init?(intValue: Int) {
+            return nil
+        }
     }
 }
 

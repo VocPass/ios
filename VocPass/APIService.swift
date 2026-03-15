@@ -39,8 +39,8 @@ class APIService: ObservableObject {
     }
 
     // MARK: - 以代理 API GET（cookies 直接放 Header）
-    private func proxyGet<T: Decodable>(path: String,
-                                        extraQueryItems: [URLQueryItem] = []) async throws -> APIResponse<T> {
+    private func proxyGetData(path: String,
+                              extraQueryItems: [URLQueryItem] = []) async throws -> Data {
         let school = try selectedSchool()
 
         guard !cookieString.isEmpty else {
@@ -77,6 +77,13 @@ class APIService: ObservableObject {
             }
             throw URLError(.badServerResponse)
         }
+
+        return data
+    }
+
+    private func proxyGet<T: Decodable>(path: String,
+                                        extraQueryItems: [URLQueryItem] = []) async throws -> APIResponse<T> {
+        let data = try await proxyGetData(path: path, extraQueryItems: extraQueryItems)
 
         return try JSONDecoder().decode(APIResponse<T>.self, from: data)
     }
@@ -170,11 +177,46 @@ class APIService: ObservableObject {
 
     // MARK: - 獎懲記錄
     func fetchMeritDemeritRecords() async throws -> (merits: [MeritDemeritRecord], demerits: [MeritDemeritRecord]) {
-        let response: APIResponse<[[MeritDemeritRecord]]> = try await proxyGet(path: "merit_demerit")
+        let data = try await proxyGetData(path: "merit_demerit")
+        let decoder = JSONDecoder()
 
-        let merits   = response.data.count > 0 ? response.data[0] : []
-        let demerits = response.data.count > 1 ? response.data[1] : []
-        return (merits, demerits)
+        if let response = try? decoder.decode(APIResponse<[[MeritDemeritRecord]]>.self, from: data) {
+            let merits = response.data.count > 0 ? response.data[0] : []
+            let demerits = response.data.count > 1 ? response.data[1] : []
+            return (merits, demerits)
+        }
+
+        if let response = try? decoder.decode(APIResponse<[String: [MeritDemeritRecord]]>.self, from: data) {
+            let map = response.data
+            let merits = map["merits"]
+                ?? map["merit"]
+                ?? map["rewards"]
+                ?? map["reward"]
+                ?? map["awards"]
+                ?? map["award"]
+                ?? map["獎勵"]
+                ?? []
+
+            let demerits = map["demerits"]
+                ?? map["demerit"]
+                ?? map["punishments"]
+                ?? map["punishment"]
+                ?? map["penalties"]
+                ?? map["penalty"]
+                ?? map["懲罰"]
+                ?? []
+
+            return (merits, demerits)
+        }
+
+        if let response = try? decoder.decode(APIResponse<[MeritDemeritRecord]>.self, from: data) {
+            return (response.data, [])
+        }
+
+        if let raw = String(data: data, encoding: .utf8) {
+            print("❌ [API] 無法解析 merit_demerit，原始回應: \(raw)")
+        }
+        throw APIError.invalidResponseFormat
     }
 
     // MARK: - 課表
@@ -357,6 +399,7 @@ enum APIError: LocalizedError {
     case sessionExpired
     case noSchoolSelected
     case featureNotSupported
+    case invalidResponseFormat
 
     var errorDescription: String? {
         switch self {
@@ -366,6 +409,8 @@ enum APIError: LocalizedError {
             return "請先選擇學校"
         case .featureNotSupported:
             return "此功能目前不支援"
+        case .invalidResponseFormat:
+            return "資料格式與預期不符，請稍後再試"
         }
     }
 }

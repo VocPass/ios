@@ -50,6 +50,16 @@ struct CurriculumView: View {
                 }
             }
             .navigationTitle("課表")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        Task { await loadData(forceRefresh: true) }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .disabled(isLoading)
+                }
+            }
         }
         .task {
             await loadData()
