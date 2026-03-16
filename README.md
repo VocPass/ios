@@ -37,7 +37,7 @@
 
 ## 🏫 支援學校
 
-學校擴充支援請至 Server查看。
+學校擴充支援請至 [Server](https://github.com/VocPass/server) 查看。
 
 ---
 
@@ -68,29 +68,11 @@ git clone https://github.com/HansHans135/VocPass.git
 
 ---
 
-## 📁 專案結構
-
-```
-VocPass/
-├── VocPass/                    # 主應用程式
-│   ├── APIService.swift            # 網路請求與資料解析
-│   ├── CacheService.swift          # 快取與設定管理
-│   ├── CaptchaRecognizer.swift     # Vision OCR 驗證碼辨識
-│   ├── DynamicIslandService.swift  # Live Activity 管理
-│   ├── SchoolConfig.swift          # 學校設定模型
-│   ├── HTMLParser.swift            # HTML 解析
-│   ├── Models.swift                # 資料模型
-│   └── *View.swift                 # SwiftUI 畫面
-└── VocPassWidget/              # Dynamic Island & Widget 擴充
-```
-
----
-
 ## 🤝 貢獻
 
 歡迎提交 Issue 或 PR！
 
-- **新增學校支援**：編輯 `schools.json` 並提交 PR
+- **新增學校支援**：前往 [Server](https://github.com/VocPass/server) 貢獻
 - **功能建議**：開 Issue 討論
 - **Bug 回報**：請附上裝置型號、iOS 版本與重現步驟
 
