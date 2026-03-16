@@ -11,6 +11,7 @@ struct SchoolSelectionView: View {
     @Environment(\.openURL) private var openURL
     @ObservedObject var configManager = SchoolConfigManager.shared
     @Binding var hasSelectedSchool: Bool
+    @State private var showBeta = false
 
     private let applySchoolURL = URL(string: "https://forms.gle/t145dao5K2DHkxa2A")
     
@@ -20,7 +21,8 @@ struct SchoolSelectionView: View {
                 VStack(spacing: 12) {
                     Image(systemName: "building.columns.fill")
                         .font(.system(size: 60))
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(showBeta ? .orange : .blue)
+                        .onTapGesture { showBeta.toggle() }
                     
                     Text("選擇學校")
                         .font(.largeTitle)
@@ -53,7 +55,7 @@ struct SchoolSelectionView: View {
                     Spacer()
                 } else {
                     VStack(spacing: 0) {
-                        List(configManager.schools) { school in
+                        List(showBeta ? configManager.allSchools : configManager.schools) { school in
                             SchoolRowView(school: school) {
                                 selectSchool(school)
                             }
@@ -115,7 +117,7 @@ struct SchoolRowView: View {
                             .font(.headline)
                             .foregroundColor(.primary)
 
-                        if AppConfig.isDebugBuild && school.beta {
+                        if school.beta {
                             Text("Beta")
                                 .font(.caption2)
                                 .fontWeight(.semibold)

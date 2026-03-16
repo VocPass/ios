@@ -248,6 +248,7 @@ class SchoolConfigManager: ObservableObject {
     static let shared = SchoolConfigManager()
     
     @Published var schools: [SchoolConfig] = []
+    @Published var allSchools: [SchoolConfig] = []
     @Published var selectedSchool: SchoolConfig?
     @Published var isLoading = false
     @Published var error: String?
@@ -309,14 +310,16 @@ class SchoolConfigManager: ObservableObject {
                         )
                     }
 
-                    let filteredSchools = schools.filter { school in
-                        self?.shouldDisplaySchool(school) ?? true
+                    let versionFiltered = schools.filter { school in
+                        self?.isSchoolVersionSupported(requiredVersion: school.app) ?? true
                     }
+                    let filteredSchools = versionFiltered.filter { !$0.beta }
 
+                    self?.allSchools = versionFiltered
                     self?.schools = filteredSchools
                     self?.cacheSchools(data)
                     if let currentName = self?.selectedSchool?.name,
-                       let updated = filteredSchools.first(where: { $0.name == currentName }) {
+                       let updated = versionFiltered.first(where: { $0.name == currentName }) {
                         self?.selectedSchool = updated
                         self?.saveSelectedSchool(updated)
                     }
@@ -362,7 +365,9 @@ class SchoolConfigManager: ObservableObject {
                     route: config.route
                 )
             }
-            schools = mappedSchools.filter(shouldDisplaySchool)
+            let versionFiltered = mappedSchools.filter { isSchoolVersionSupported(requiredVersion: $0.app) }
+            allSchools = versionFiltered
+            schools = versionFiltered.filter { !$0.beta }
             print("✅ [SchoolConfig] 從快取載入 \(schools.count) 所學校（App \(currentAppVersion)）")
         } catch {
             print("❌ [SchoolConfig] 快取資料解析失敗: \(error)")
@@ -375,7 +380,7 @@ class SchoolConfigManager: ObservableObject {
         let defaultRoute = RouteConfig(
             examResults: "/online/selection_student/{file_name}"
         )
-        schools = [
+        let defaultList = [
             SchoolConfig(
                 name: "鶯歌工商",
                 vision: "v1",
@@ -397,6 +402,8 @@ class SchoolConfigManager: ObservableObject {
                 route: defaultRoute
             )
         ]
+        allSchools = defaultList
+        schools = defaultList.filter { !$0.beta }
         print("✅ [SchoolConfig] 使用預設配置")
     }
     
