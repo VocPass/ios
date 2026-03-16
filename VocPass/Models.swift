@@ -617,13 +617,38 @@ struct DailyPerformance: Codable {
     }
 
     private enum AlternateCodingKeys: String, CodingKey {
+        case dailyLifePerformance = "daily_life_performance"
         case comment
         case service_hours
         case service
+        case service_learning
         case special_performance
         case special
+        case special_achievements
         case suggestion
+        case suggestions_and_comments
         case remarks
+    }
+
+    private struct DailyLifePerformanceBlock: Codable {
+        let evaluation: String
+        let description: String
+
+        enum CodingKeys: String, CodingKey {
+            case evaluation
+            case description
+        }
+
+        init(evaluation: String = "", description: String = "") {
+            self.evaluation = evaluation
+            self.description = description
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            evaluation = (try? c.decodeLossyString(forKey: .evaluation)) ?? ""
+            description = (try? c.decodeLossyString(forKey: .description)) ?? ""
+        }
     }
 
     init(
@@ -645,21 +670,28 @@ struct DailyPerformance: Codable {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let alt = try decoder.container(keyedBy: AlternateCodingKeys.self)
+        let dailyLife = (try? alt.decode(DailyLifePerformanceBlock.self, forKey: .dailyLifePerformance))
 
-        evaluation = (try? c.decodeLossyString(forKey: .evaluation)) ?? ""
+        evaluation = (try? c.decodeLossyString(forKey: .evaluation))
+            ?? dailyLife?.evaluation
+            ?? ""
         description = (try? c.decodeLossyString(forKey: .description))
+            ?? dailyLife?.description
             ?? (try? alt.decodeLossyString(forKey: .comment))
             ?? ""
         serviceHours = (try? c.decodeLossyString(forKey: .serviceHours))
             ?? (try? alt.decodeLossyString(forKey: .service_hours))
             ?? (try? alt.decodeLossyString(forKey: .service))
+            ?? (try? alt.decodeLossyString(forKey: .service_learning))
             ?? ""
         specialPerformance = (try? c.decodeLossyString(forKey: .specialPerformance))
             ?? (try? alt.decodeLossyString(forKey: .special_performance))
             ?? (try? alt.decodeLossyString(forKey: .special))
+            ?? (try? alt.decodeLossyString(forKey: .special_achievements))
             ?? ""
         suggestions = (try? c.decodeLossyString(forKey: .suggestions))
             ?? (try? alt.decodeLossyString(forKey: .suggestion))
+            ?? (try? alt.decodeLossyString(forKey: .suggestions_and_comments))
             ?? ""
         others = (try? c.decodeLossyString(forKey: .others))
             ?? (try? alt.decodeLossyString(forKey: .remarks))

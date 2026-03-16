@@ -81,6 +81,21 @@ struct ScoreView: View {
                                 }
                             }
                         }
+
+                        // 日常生活表現（若 API 無 daily_performance 則不顯示）
+                        if !gradeData.dailyPerformance.isEmpty {
+                            Section("日常生活表現") {
+                                ForEach(orderedDailyPerformanceKeys(), id: \.self) { key in
+                                    if let performance = gradeData.dailyPerformance[key],
+                                       !performance.isCompletelyEmpty {
+                                        DailyPerformanceRow(
+                                            semesterTitle: semesterTitle(for: key),
+                                            performance: performance
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                     .refreshable {
                         await loadData()
@@ -125,22 +140,25 @@ struct ScoreView: View {
     }
 
     private func orderedTotalScoreKeys() -> [String] {
-        let preferredOrder = [
-            "補前平均",
-            "學科平均",
-            "智育成績",
-            "體育成績",
-            "實習成績",
-            "軍訓成績",
-            "實得學分",
-            "實得累計",
-            "學期名次"
-        ]
+        gradeData.totalScores.keys.sorted { lhs, rhs in
+            lhs.localizedStandardCompare(rhs) == .orderedAscending
+        }
+    }
 
-        let existing = Set(gradeData.totalScores.keys)
+    private func orderedDailyPerformanceKeys() -> [String] {
+        let preferredOrder = ["first_semester", "second_semester"]
+        let existing = Set(gradeData.dailyPerformance.keys)
         let ordered = preferredOrder.filter { existing.contains($0) }
         let remaining = existing.subtracting(preferredOrder).sorted()
         return ordered + remaining
+    }
+
+    private func semesterTitle(for key: String) -> String {
+        switch key {
+        case "first_semester": return "上學期"
+        case "second_semester": return "下學期"
+        default: return key
+        }
     }
 }
 
@@ -260,6 +278,64 @@ struct TotalScoreRow: View {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { return .secondary }
         return emphasize ? .primary : .primary.opacity(0.9)
+    }
+}
+
+struct DailyPerformanceRow: View {
+    let semesterTitle: String
+    let performance: DailyPerformance
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(semesterTitle)
+                .font(.headline)
+
+            if !cleaned(performance.evaluation).isEmpty {
+                textBlock(title: "日常評量", value: cleaned(performance.evaluation))
+            }
+            if !cleaned(performance.description).isEmpty {
+                textBlock(title: "描述", value: cleaned(performance.description))
+            }
+            if !cleaned(performance.serviceHours).isEmpty {
+                textBlock(title: "服務學習", value: cleaned(performance.serviceHours))
+            }
+            if !cleaned(performance.specialPerformance).isEmpty {
+                textBlock(title: "特殊表現", value: cleaned(performance.specialPerformance))
+            }
+            if !cleaned(performance.suggestions).isEmpty {
+                textBlock(title: "建議與評語", value: cleaned(performance.suggestions))
+            }
+            if !cleaned(performance.others).isEmpty {
+                textBlock(title: "其他", value: cleaned(performance.others))
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func textBlock(title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.caption)
+                .foregroundColor(.secondary)
+            Text(value)
+                .font(.subheadline)
+        }
+    }
+
+    private func cleaned(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: "<br/>", with: "\n")
+            .replacingOccurrences(of: "<br />", with: "\n")
+            .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "&nbsp;", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+private extension DailyPerformance {
+    var isCompletelyEmpty: Bool {
+        [evaluation, description, serviceHours, specialPerformance, suggestions, others]
+            .allSatisfy { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     }
 }
 
