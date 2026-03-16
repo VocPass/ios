@@ -300,10 +300,51 @@ struct WebView: UIViewRepresentable {
             guard let currentURL = webView.url?.absoluteString else { return }
             print("🌐 [WebView] 載入完成: \(currentURL)")
 
-            let keywordScript = "(document.body && document.body.innerText) ? document.body.innerText : ''"
-            webView.evaluateJavaScript(keywordScript) { result, _ in
-                let pageText = (result as? String ?? "").lowercased()
-                let matchedKeyword = self.loginSuccessKeywords.first { pageText.contains($0.lowercased()) }
+            inspectLoginStateAfterPageReady(webView: webView, currentURL: currentURL)
+        }
+
+        private func inspectLoginStateAfterPageReady(webView: WKWebView, currentURL: String, attempt: Int = 0) {
+            let maxAttempts = 8
+            let pageStateScript = """
+            (function() {
+                return {
+                    readyState: document.readyState || '',
+                    html: (document.documentElement && document.documentElement.outerHTML) ? document.documentElement.outerHTML : '',
+                    text: (document.body && document.body.innerText) ? document.body.innerText : ''
+                };
+            })();
+            """
+
+            webView.evaluateJavaScript(pageStateScript) { result, error in
+                if let error = error {
+                    print("❌ [WebView] 讀取頁面內容失敗: \(error.localizedDescription)")
+                    return
+                }
+
+                guard let payload = result as? [String: Any] else {
+                    print("❌ [WebView] 頁面內容格式錯誤")
+                    return
+                }
+
+                let readyState = (payload["readyState"] as? String ?? "").lowercased()
+                let html = payload["html"] as? String ?? ""
+                let text = payload["text"] as? String ?? ""
+
+                if readyState != "complete", attempt < maxAttempts {
+                    print("⏳ [WebView] 頁面尚未完全載入（readyState=\(readyState)），延後偵測（\(attempt + 1)/\(maxAttempts)）")
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                        self.inspectLoginStateAfterPageReady(webView: webView, currentURL: currentURL, attempt: attempt + 1)
+                    }
+                    return
+                }
+
+                print("🧾 [WebView] 開始登入關鍵字偵測（readyState=\(readyState)）")
+                self.logHTML(html, currentURL: currentURL)
+
+                let searchableText = "\(text)\n\(html)".lowercased()
+                let matchedKeyword = self.loginSuccessKeywords.first {
+                    searchableText.contains($0.lowercased())
+                }
 
                 if let matchedKeyword, !self.hasLoggedIn {
                     print("✅ [WebView] 偵測到登入成功關鍵字: \(matchedKeyword)，等待 cookies 載入...")
@@ -323,6 +364,8 @@ struct WebView: UIViewRepresentable {
                         }
                     }
                 } else {
+                    print("ℹ️ [WebView] 本次未偵測到登入關鍵字，關鍵字清單: \(self.loginSuccessKeywords)")
+
                     webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { cookies in
                         DispatchQueue.main.async {
                             self.parent.cookies = cookies
@@ -334,6 +377,29 @@ struct WebView: UIViewRepresentable {
                     }
                 }
             }
+        }
+
+        private func logHTML(_ html: String, currentURL: String) {
+            print("🧾 [WebView][HTML] ===== BEGIN URL: \(currentURL) =====")
+            print("🧾 [WebView][HTML] 長度: \(html.count) chars")
+
+            if html.isEmpty {
+                print("🧾 [WebView][HTML] (empty)")
+            } else {
+                let chunkSize = 4000
+                var startIndex = html.startIndex
+                var chunkNumber = 1
+
+                while startIndex < html.endIndex {
+                    let endIndex = html.index(startIndex, offsetBy: chunkSize, limitedBy: html.endIndex) ?? html.endIndex
+                    let chunk = String(html[startIndex..<endIndex])
+                    print("🧾 [WebView][HTML][\(chunkNumber)] \(chunk)")
+                    startIndex = endIndex
+                    chunkNumber += 1
+                }
+            }
+
+            print("🧾 [WebView][HTML] ===== END URL: \(currentURL) =====")
         }
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {

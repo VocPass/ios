@@ -246,18 +246,31 @@ struct ButtonConfig: Codable {
 // MARK: - 學校配置管理器
 class SchoolConfigManager: ObservableObject {
     static let shared = SchoolConfigManager()
+
+    enum ConfigSource: String {
+        case unknown = "UNKNOWN"
+        case api = "API"
+        case cache = "CACHE"
+        case `default` = "DEFAULT"
+    }
     
     @Published var schools: [SchoolConfig] = []
     @Published var allSchools: [SchoolConfig] = []
     @Published var selectedSchool: SchoolConfig?
     @Published var isLoading = false
     @Published var error: String?
+    @Published private(set) var configSource: ConfigSource = .unknown
     
     // 遠端 API URL
     private let apiURL: String = AppConfig.vocPassAPIHost + "/school"
 
     private var currentAppVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
+    }
+
+    private func setConfigSource(_ source: ConfigSource) {
+        configSource = source
+        print("🧭 [SchoolConfig] 目前配置來源: \(source.rawValue)")
     }
     
     private init() {
@@ -318,6 +331,7 @@ class SchoolConfigManager: ObservableObject {
                     self?.allSchools = versionFiltered
                     self?.schools = filteredSchools
                     self?.cacheSchools(data)
+                    self?.setConfigSource(.api)
                     if let currentName = self?.selectedSchool?.name,
                        let updated = versionFiltered.first(where: { $0.name == currentName }) {
                         self?.selectedSchool = updated
@@ -368,6 +382,7 @@ class SchoolConfigManager: ObservableObject {
             let versionFiltered = mappedSchools.filter { isSchoolVersionSupported(requiredVersion: $0.app) }
             allSchools = versionFiltered
             schools = versionFiltered.filter { !$0.beta }
+            setConfigSource(.cache)
             print("✅ [SchoolConfig] 從快取載入 \(schools.count) 所學校（App \(currentAppVersion)）")
         } catch {
             print("❌ [SchoolConfig] 快取資料解析失敗: \(error)")
@@ -404,6 +419,7 @@ class SchoolConfigManager: ObservableObject {
         ]
         allSchools = defaultList
         schools = defaultList.filter { !$0.beta }
+        setConfigSource(.default)
         print("✅ [SchoolConfig] 使用預設配置")
     }
     
