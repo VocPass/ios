@@ -110,9 +110,22 @@ struct SchoolRowView: View {
                 }
                 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(school.name)
-                        .font(.headline)
-                        .foregroundColor(.primary)
+                    HStack(spacing: 8) {
+                        Text(school.name)
+                            .font(.headline)
+                            .foregroundColor(.primary)
+
+                        if AppConfig.isDebugBuild && school.beta {
+                            Text("Beta")
+                                .font(.caption2)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(.orange)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.orange.opacity(0.15))
+                                .clipShape(Capsule())
+                        }
+                    }
                     
                     Text(school.api)
                         .font(.caption)

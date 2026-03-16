@@ -14,10 +14,52 @@ struct SchoolConfig: Codable, Identifiable {
     let name: String
     let vision: String
     let app: String?
+    let beta: Bool
     let api: String
     let url: URLConfig
     let login: LoginConfig
     let route: RouteConfig
+
+    init(name: String,
+         vision: String,
+         app: String?,
+         beta: Bool = false,
+         api: String,
+         url: URLConfig,
+         login: LoginConfig,
+         route: RouteConfig) {
+        self.name = name
+        self.vision = vision
+        self.app = app
+        self.beta = beta
+        self.api = api
+        self.url = url
+        self.login = login
+        self.route = route
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decode(String.self, forKey: .name)
+        vision = try container.decode(String.self, forKey: .vision)
+        app = try container.decodeIfPresent(String.self, forKey: .app)
+        beta = try container.decodeIfPresent(Bool.self, forKey: .beta) ?? false
+        api = try container.decode(String.self, forKey: .api)
+        url = try container.decode(URLConfig.self, forKey: .url)
+        login = try container.decode(LoginConfig.self, forKey: .login)
+        route = try container.decode(RouteConfig.self, forKey: .route)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case vision
+        case app
+        case beta
+        case api
+        case url
+        case login
+        case route
+    }
 
     var loginURL: URL? {
         URL(string: api + url.login)
@@ -259,6 +301,7 @@ class SchoolConfigManager: ObservableObject {
                             name: name,
                             vision: config.vision,
                             app: config.app,
+                            beta: config.beta,
                             api: config.api,
                             url: config.url,
                             login: config.login,
@@ -267,7 +310,7 @@ class SchoolConfigManager: ObservableObject {
                     }
 
                     let filteredSchools = schools.filter { school in
-                        self?.isSchoolVersionSupported(requiredVersion: school.app) ?? true
+                        self?.shouldDisplaySchool(school) ?? true
                     }
 
                     self?.schools = filteredSchools
@@ -312,15 +355,14 @@ class SchoolConfigManager: ObservableObject {
                     name: name,
                     vision: config.vision,
                     app: config.app,
+                    beta: config.beta,
                     api: config.api,
                     url: config.url,
                     login: config.login,
                     route: config.route
                 )
             }
-            schools = mappedSchools.filter { school in
-                isSchoolVersionSupported(requiredVersion: school.app)
-            }
+            schools = mappedSchools.filter(shouldDisplaySchool)
             print("✅ [SchoolConfig] 從快取載入 \(schools.count) 所學校（App \(currentAppVersion)）")
         } catch {
             print("❌ [SchoolConfig] 快取資料解析失敗: \(error)")
@@ -338,6 +380,7 @@ class SchoolConfigManager: ObservableObject {
                 name: "鶯歌工商",
                 vision: "v1",
                 app: nil,
+                beta: false,
                 api: "https://eschool.ykvs.ntpc.edu.tw",
                 url: URLConfig(
                     login: "/auth/Online",
@@ -395,6 +438,14 @@ class SchoolConfigManager: ObservableObject {
         selectedSchool != nil
     }
 
+    private func shouldDisplaySchool(_ school: SchoolConfig) -> Bool {
+        guard isSchoolVersionSupported(requiredVersion: school.app) else {
+            return false
+        }
+
+        return AppConfig.isDebugBuild || !school.beta
+    }
+
     private func isSchoolVersionSupported(requiredVersion: String?) -> Bool {
         guard let requiredVersion, !requiredVersion.isEmpty else {
             return true
@@ -423,6 +474,7 @@ class SchoolConfigManager: ObservableObject {
 private struct SchoolConfigData: Codable {
     let vision: String
     let app: String?
+    let beta: Bool
     let api: String
     let url: URLConfig
     let login: LoginConfig
@@ -436,6 +488,7 @@ private struct SchoolConfigData: Codable {
         url = try container.decode(URLConfig.self, forKey: .url)
         login = try container.decode(LoginConfig.self, forKey: .login)
         route = try container.decode(RouteConfig.self, forKey: .route)
+        beta = try container.decodeIfPresent(Bool.self, forKey: .beta) ?? false
 
         if let appString = try? container.decode(String.self, forKey: .app) {
             app = appString
@@ -451,6 +504,7 @@ private struct SchoolConfigData: Codable {
     enum CodingKeys: String, CodingKey {
         case vision
         case app
+        case beta
         case api
         case url
         case login
