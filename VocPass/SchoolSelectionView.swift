@@ -12,8 +12,24 @@ struct SchoolSelectionView: View {
     @ObservedObject var configManager = SchoolConfigManager.shared
     @Binding var hasSelectedSchool: Bool
     @State private var showBeta = false
+    @State private var searchText = ""
 
     private let applySchoolURL = URL(string: "https://forms.gle/t145dao5K2DHkxa2A")
+
+    private var filteredSchools: [SchoolConfig] {
+        let sourceSchools = showBeta ? configManager.allSchools : configManager.schools
+        let keyword = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !keyword.isEmpty else { return sourceSchools }
+
+        return sourceSchools.filter { school in
+            let appName = school.app ?? ""
+            return school.name.localizedCaseInsensitiveContains(keyword)
+                || school.vision.localizedCaseInsensitiveContains(keyword)
+                || appName.localizedCaseInsensitiveContains(keyword)
+                || school.api.localizedCaseInsensitiveContains(keyword)
+        }
+    }
     
     var body: some View {
         NavigationStack {
@@ -55,12 +71,50 @@ struct SchoolSelectionView: View {
                     Spacer()
                 } else {
                     VStack(spacing: 0) {
-                        List(showBeta ? configManager.allSchools : configManager.schools) { school in
-                            SchoolRowView(school: school) {
-                                selectSchool(school)
+                        HStack(spacing: 10) {
+                            Image(systemName: "magnifyingglass")
+                                .foregroundStyle(.secondary)
+
+                            TextField("搜尋學校", text: $searchText)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled(true)
+
+                            if !searchText.isEmpty {
+                                Button {
+                                    searchText = ""
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .foregroundStyle(.secondary)
+                                }
+                                .buttonStyle(.plain)
                             }
                         }
-                        .listStyle(.insetGrouped)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color(.secondarySystemGroupedBackground))
+                        )
+                        .padding(.horizontal)
+
+                        if filteredSchools.isEmpty {
+                            Spacer()
+                            VStack(spacing: 10) {
+                                Image(systemName: "magnifyingglass")
+                                    .font(.title2)
+                                    .foregroundStyle(.secondary)
+                                Text("找不到符合的學校")
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                        } else {
+                            List(filteredSchools) { school in
+                                SchoolRowView(school: school) {
+                                    selectSchool(school)
+                                }
+                            }
+                            .listStyle(.insetGrouped)
+                        }
 
                         Button {
                             guard let applySchoolURL else { return }
