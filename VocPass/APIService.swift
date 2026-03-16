@@ -75,6 +75,9 @@ class APIService: ObservableObject {
             } else {
                 print("❌ [API] Proxy API error (\(httpResponse.statusCode))")
             }
+            if httpResponse.statusCode == 404 {
+                throw APIError.featureNotSupported
+            }
             throw URLError(.badServerResponse)
         }
 
