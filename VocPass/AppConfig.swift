@@ -11,9 +11,9 @@ enum AppConfig {
 
     static var vocPassAPIHost: String {
         #if DEBUG
-        return "https://vocpass-dev.zeabur.app"
+        return "https://dev.vocpass.com"
         #else
-        return "https://vocpass.zeabur.app"
+        return "https://vocpass.com"
         #endif
     }
 }

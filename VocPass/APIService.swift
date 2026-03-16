@@ -84,11 +84,50 @@ class APIService: ObservableObject {
         return data
     }
 
+    private struct APIStatusResponse: Decodable {
+        let code: Int?
+        let message: String?
+        enum CodingKeys: String, CodingKey {
+            case code, message
+        }
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            code    = (try? c.decode(Int.self,    forKey: .code))
+                   ?? { if let s = try? c.decode(String.self, forKey: .code) { return Int(s) }; return nil }()
+            message = try? c.decode(String.self, forKey: .message)
+        }
+    }
+
     private func proxyGet<T: Decodable>(path: String,
                                         extraQueryItems: [URLQueryItem] = []) async throws -> APIResponse<T> {
         let data = try await proxyGetData(path: path, extraQueryItems: extraQueryItems)
 
-        return try JSONDecoder().decode(APIResponse<T>.self, from: data)
+
+        if let raw = String(data: data, encoding: .utf8) {
+            print("📦 [API] Raw JSON [\(path)] (\(data.count) bytes):")
+            print(raw)
+        }
+
+        if let status = try? JSONDecoder().decode(APIStatusResponse.self, from: data) {
+            let code = status.code ?? 200
+            let msg  = status.message ?? ""
+            print("ℹ️ [API] Status [\(path)]: code=\(code) message=\(msg)")
+            if code == 404 || msg.lowercased().contains("not implemented") {
+                throw APIError.featureNotSupported
+            }
+            if code == 401 || code == 403 {
+                throw APIError.sessionExpired
+            }
+        }
+
+        do {
+            let result = try JSONDecoder().decode(APIResponse<T>.self, from: data)
+            print("✅ [API] Decoded [\(path)] → code=\(result.code) message=\(result.message)")
+            return result
+        } catch {
+            print("❌ [API] Decode failed [\(path)]: \(error)")
+            throw error
+        }
     }
 
     // MARK: - 向學校伺服器 GET HTML
@@ -259,11 +298,20 @@ class APIService: ObservableObject {
 
     // MARK: - 缺曠記錄
     func fetchAttendance() async throws -> (records: [AbsenceRecord], statistics: AttendanceStatistics, semesterInfo: SemesterInfo?) {
+        print("🔄 [Attendance] 開始抓取缺曠資料...")
         let response: APIResponse<[AbsenceRecord]> = try await proxyGet(path: "attendance")
 
         let records     = response.data
+        print("📋 [Attendance] 收到 \(records.count) 筆缺曠記錄")
+        for (i, r) in records.prefix(5).enumerated() {
+            print("  [\(i)] academicYear=\(r.academicYear) date=\(r.date) weekday=\(r.weekday) period=\(r.period) status=\(r.status)")
+        }
+        if records.count > 5 { print("  ... (省略餘下 \(records.count - 5) 筆)") }
+
         let statistics  = computeAttendanceStatistics(from: records)
+        print("📊 [Attendance] 統計: 曠=\(statistics.total.truancy) 事=\(statistics.total.personalLeave) 病=\(statistics.total.sickLeave) 公=\(statistics.total.officialLeave)")
         let semesterInfo = currentSemesterInfo()
+        print("🗓️ [Attendance] 推算學期: \(semesterInfo.schoolYear)-\(semesterInfo.semester)")
 
         return (records, statistics, semesterInfo)
     }
