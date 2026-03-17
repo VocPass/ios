@@ -7,6 +7,7 @@
 
 import Foundation
 import Combine
+import WebKit
 
 class APIService: ObservableObject {
     static let shared = APIService()
@@ -442,6 +443,26 @@ class APIService: ObservableObject {
     func logout() {
         cookies = []
         isLoggedIn = false
+        clearAllCookiesAndWebsiteData()
+    }
+
+    private func clearAllCookiesAndWebsiteData() {
+        let sharedStorage = HTTPCookieStorage.shared
+        sharedStorage.cookies?.forEach { sharedStorage.deleteCookie($0) }
+
+        let dataStore = WKWebsiteDataStore.default()
+        dataStore.httpCookieStore.getAllCookies { cookies in
+            cookies.forEach { dataStore.httpCookieStore.delete($0) }
+        }
+
+        let allDataTypes = WKWebsiteDataStore.allWebsiteDataTypes()
+        WKWebsiteDataStore.default().fetchDataRecords(ofTypes: allDataTypes) { records in
+            WKWebsiteDataStore.default().removeData(ofTypes: allDataTypes, for: records) {
+                print("🧹 [API] 已清除所有 WebView cookies 與網站資料")
+            }
+        }
+
+        print("🧹 [API] 已觸發登出資料清除流程")
     }
 }
 
