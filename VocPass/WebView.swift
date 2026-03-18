@@ -56,19 +56,51 @@ struct WebView: UIViewRepresentable {
                 var captchaImageSelector = '\(captchaImageSelector)';
                 var hasTriggeredCaptchaRecognition = false;
 
+                function getNativeValueSetter(element) {
+                    var prototype = Object.getPrototypeOf(element);
+                    var descriptor = prototype ? Object.getOwnPropertyDescriptor(prototype, 'value') : null;
+                    return descriptor && descriptor.set ? descriptor.set : null;
+                }
+
+                function dispatchFieldEvents(field, previousValue) {
+                    field.dispatchEvent(new Event('input', { bubbles: true }));
+                    if (previousValue !== field.value) {
+                        field.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                    field.dispatchEvent(new Event('blur', { bubbles: true }));
+                }
+
+                function fillField(field, newValue) {
+                    if (!field || !newValue) return false;
+
+                    var oldValue = field.value || '';
+                    field.focus();
+
+                    var setter = getNativeValueSetter(field);
+                    if (setter) {
+                        // Some pages only detect required fields after value transitions.
+                        setter.call(field, '');
+                        field.dispatchEvent(new Event('input', { bubbles: true }));
+                        setter.call(field, newValue);
+                    } else {
+                        field.value = '';
+                        field.dispatchEvent(new Event('input', { bubbles: true }));
+                        field.value = newValue;
+                    }
+
+                    dispatchFieldEvents(field, oldValue);
+                    return true;
+                }
+
                 function fillCredentials() {
                     var usernameField = document.querySelector('input[name="' + usernameFieldName + '"]');
                     if (usernameField && savedUsername && !usernameField.value) {
-                        usernameField.value = savedUsername;
-                        usernameField.dispatchEvent(new Event('input', { bubbles: true }));
-                        usernameField.dispatchEvent(new Event('change', { bubbles: true }));
+                        fillField(usernameField, savedUsername);
                     }
 
                     var passwordField = document.querySelector('input[name="' + passwordFieldName + '"]');
                     if (passwordField && savedPassword && !passwordField.value) {
-                        passwordField.value = savedPassword;
-                        passwordField.dispatchEvent(new Event('input', { bubbles: true }));
-                        passwordField.dispatchEvent(new Event('change', { bubbles: true }));
+                        fillField(passwordField, savedPassword);
                     }
                     
                     var captchaField = captchaFieldName
@@ -99,9 +131,7 @@ struct WebView: UIViewRepresentable {
                         ? document.querySelector('input[name="' + captchaFieldName + '"]')
                         : null;
                     if (captchaField) {
-                        captchaField.value = code;
-                        captchaField.dispatchEvent(new Event('input', { bubbles: true }));
-                        captchaField.dispatchEvent(new Event('change', { bubbles: true }));
+                        fillField(captchaField, code);
                         console.log('✅ 已自動填寫驗證碼: ' + code);
                         return true;
                     }

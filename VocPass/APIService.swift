@@ -17,6 +17,46 @@ class APIService: ObservableObject {
     @Published var cookies: [HTTPCookie] = []
     @Published var isLoggedIn = false
 
+    private struct APIErrorPayload: Decodable {
+        let errorID: String?
+        let message: String?
+
+        enum CodingKeys: String, CodingKey {
+            case errorID = "error_id"
+            case errorId
+            case message
+            case detail
+            case error
+        }
+
+        private static func decodeAnyString(from container: KeyedDecodingContainer<CodingKeys>, key: CodingKeys) -> String? {
+            if let value = try? container.decode(String.self, forKey: key) {
+                return value
+            }
+            if let value = try? container.decode(Int.self, forKey: key) {
+                return String(value)
+            }
+            if let value = try? container.decode(Double.self, forKey: key) {
+                return String(value)
+            }
+            if let value = try? container.decode(Bool.self, forKey: key) {
+                return value ? "true" : "false"
+            }
+            return nil
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+
+            errorID = Self.decodeAnyString(from: container, key: .errorID)
+                ?? Self.decodeAnyString(from: container, key: .errorId)
+
+            message = Self.decodeAnyString(from: container, key: .message)
+                ?? Self.decodeAnyString(from: container, key: .detail)
+                ?? Self.decodeAnyString(from: container, key: .error)
+        }
+    }
+
     private var cookieString: String {
         cookies.map { "\($0.name)=\($0.value)" }.joined(separator: "; ")
     }
@@ -29,6 +69,10 @@ class APIService: ObservableObject {
             "cookie": cookieString,
             "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148"
         ]
+    }
+
+    private func extractAPIErrorPayload(from data: Data) -> APIErrorPayload? {
+        return try? JSONDecoder().decode(APIErrorPayload.self, from: data)
     }
 
     // MARK: - 取得目前選擇的學校（或拋出錯誤）
@@ -79,7 +123,24 @@ class APIService: ObservableObject {
             if httpResponse.statusCode == 404 {
                 throw APIError.featureNotSupported
             }
-            throw URLError(.badServerResponse)
+
+            let payload = extractAPIErrorPayload(from: data)
+
+            if let message = payload?.message?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !message.isEmpty {
+                if let errorID = payload?.errorID?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !errorID.isEmpty {
+                    throw APIError.serverMessage("\(message)（錯誤id: \(errorID)）")
+                }
+                throw APIError.serverMessage(message)
+            }
+
+            if let errorID = payload?.errorID?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !errorID.isEmpty {
+                throw APIError.serverErrorID(errorID)
+            }
+
+            throw APIError.httpStatus(httpResponse.statusCode)
         }
 
         return data
@@ -88,14 +149,19 @@ class APIService: ObservableObject {
     private struct APIStatusResponse: Decodable {
         let code: Int?
         let message: String?
+        let errorID: String?
         enum CodingKeys: String, CodingKey {
             case code, message
+            case errorID = "error_id"
+            case errorId
         }
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             code    = (try? c.decode(Int.self,    forKey: .code))
                    ?? { if let s = try? c.decode(String.self, forKey: .code) { return Int(s) }; return nil }()
             message = try? c.decode(String.self, forKey: .message)
+            errorID = (try? c.decode(String.self, forKey: .errorID))
+                ?? (try? c.decode(String.self, forKey: .errorId))
         }
     }
 
@@ -118,6 +184,20 @@ class APIService: ObservableObject {
             }
             if code == 401 || code == 403 {
                 throw APIError.sessionExpired
+            }
+            if code != 200 {
+                let trimmedMessage = msg.trimmingCharacters(in: .whitespacesAndNewlines)
+                let trimmedErrorID = status.errorID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                if !trimmedMessage.isEmpty {
+                    if !trimmedErrorID.isEmpty {
+                        throw APIError.serverMessage("\(trimmedMessage)（error_id: \(trimmedErrorID)）")
+                    }
+                    throw APIError.serverMessage(trimmedMessage)
+                }
+                if !trimmedErrorID.isEmpty {
+                    throw APIError.serverErrorID(trimmedErrorID)
+                }
+                throw APIError.httpStatus(code)
             }
         }
 
@@ -472,6 +552,9 @@ enum APIError: LocalizedError {
     case noSchoolSelected
     case featureNotSupported
     case invalidResponseFormat
+    case serverErrorID(String)
+    case serverMessage(String)
+    case httpStatus(Int)
 
     var errorDescription: String? {
         switch self {
@@ -483,6 +566,12 @@ enum APIError: LocalizedError {
             return "此功能目前不支援"
         case .invalidResponseFormat:
             return "資料格式與預期不符，請稍後再試"
+        case .serverErrorID(let errorID):
+            return "伺服器錯誤（error_id: \(errorID)）"
+        case .serverMessage(let message):
+            return message
+        case .httpStatus(let status):
+            return "伺服器錯誤（HTTP \(status)）"
         }
     }
 }
