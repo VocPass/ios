@@ -15,6 +15,16 @@ struct SchoolSelectionView: View {
     @State private var searchText = ""
 
     private let applySchoolURL = URL(string: "https://forms.gle/t145dao5K2DHkxa2A")
+    private let privacyPolicyURL = URL(string: "https://vocpass.com/privacy-policy")
+    private let disclaimerURL = URL(string: "https://vocpass.com/disclaimer")
+
+    private var agreementText: AttributedString {
+        let privacyLink = privacyPolicyURL?.absoluteString ?? "https://vocpass.com/privacy-policy"
+        let disclaimerLink = disclaimerURL?.absoluteString ?? "https://vocpass.com/disclaimer"
+        let markdown = "繼續使用表示你同意[隱私權政策](\(privacyLink))和[免責聲明](\(disclaimerLink))"
+        return (try? AttributedString(markdown: markdown))
+            ?? AttributedString("繼續使用表示你同意隱私權政策和免責聲明")
+    }
 
     private var filteredSchools: [SchoolConfig] {
         let sourceSchools = showBeta ? configManager.allSchools : configManager.schools
@@ -36,19 +46,19 @@ struct SchoolSelectionView: View {
             VStack(spacing: 0) {
                 VStack(spacing: 12) {
                     Image(systemName: "building.columns.fill")
-                        .font(.system(size: 60))
+                        .font(.system(size: 46))
                         .foregroundStyle(showBeta ? .orange : .blue)
                         .onTapGesture { showBeta.toggle() }
                     
                     Text("選擇學校")
-                        .font(.largeTitle)
+                        .font(.title)
                         .fontWeight(.bold)
                     
                     Text("請選擇您就讀的學校")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                 }
-                .padding(.vertical, 40)
+                .padding(.vertical, 28)
                 
                 if configManager.isLoading {
                     Spacer()
@@ -127,7 +137,16 @@ struct SchoolSelectionView: View {
                         .buttonStyle(.borderedProminent)
                         .padding(.horizontal)
                         .padding(.top, 8)
-                        .padding(.bottom, 16)
+
+                            Spacer(minLength: 16)
+
+                            Text(agreementText)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                                .tint(.accentColor)
+                                .padding(.horizontal, 20)
+                                .padding(.bottom, 16)
                     }
                 }
             }
