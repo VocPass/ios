@@ -93,18 +93,18 @@ struct WebView: UIViewRepresentable {
                 }
 
                 function fillCredentials() {
-                    var usernameField = document.querySelector('input[name="' + usernameFieldName + '"]');
+                    var usernameField = document.querySelector('input[name="' + usernameFieldName + '"]') || document.querySelector('input[id="' + usernameFieldName + '"]');
                     if (usernameField && savedUsername && !usernameField.value) {
                         fillField(usernameField, savedUsername);
                     }
 
-                    var passwordField = document.querySelector('input[name="' + passwordFieldName + '"]');
+                    var passwordField = document.querySelector('input[name="' + passwordFieldName + '"]') || document.querySelector('input[id="' + passwordFieldName + '"]');
                     if (passwordField && savedPassword && !passwordField.value) {
                         fillField(passwordField, savedPassword);
                     }
-                    
+
                     var captchaField = captchaFieldName
-                        ? document.querySelector('input[name="' + captchaFieldName + '"]')
+                        ? (document.querySelector('input[name="' + captchaFieldName + '"]') || document.querySelector('input[id="' + captchaFieldName + '"]'))
                         : null;
                     if (captchaField && !captchaField.value && !hasTriggeredCaptchaRecognition) {
                         var captchaImage = document.querySelector('.' + captchaImageSelector) ||
@@ -128,7 +128,7 @@ struct WebView: UIViewRepresentable {
                 
                 window.fillCaptchaCode = function(code) {
                     var captchaField = captchaFieldName
-                        ? document.querySelector('input[name="' + captchaFieldName + '"]')
+                        ? (document.querySelector('input[name="' + captchaFieldName + '"]') || document.querySelector('input[id="' + captchaFieldName + '"]'))
                         : null;
                     if (captchaField) {
                         fillField(captchaField, code);
@@ -160,10 +160,10 @@ struct WebView: UIViewRepresentable {
                     : (target.matches('button, input[type="submit"]') || target.closest('button, input[type="submit"]'));
                 
                 if (isLoginButton) {
-                    var usernameField = document.querySelector('input[name="' + usernameFieldName + '"]');
-                    var passwordField = document.querySelector('input[name="' + passwordFieldName + '"]');
+                    var usernameField = document.querySelector('input[name="' + usernameFieldName + '"]') || document.querySelector('input[id="' + usernameFieldName + '"]');
+                    var passwordField = document.querySelector('input[name="' + passwordFieldName + '"]') || document.querySelector('input[id="' + passwordFieldName + '"]');
                     var captchaField = captchaFieldName
-                        ? document.querySelector('input[name="' + captchaFieldName + '"]')
+                        ? (document.querySelector('input[name="' + captchaFieldName + '"]') || document.querySelector('input[id="' + captchaFieldName + '"]'))
                         : null;
                     
                     var username = usernameField ? usernameField.value : '';
@@ -195,9 +195,9 @@ struct WebView: UIViewRepresentable {
                 var loginBtn = form.querySelector('.' + buttonClass);
                 if (!loginBtn) return;
 
-                var usernameField = form.querySelector('input[name="' + usernameFieldName + '"]');
-                var passwordField = form.querySelector('input[name="' + passwordFieldName + '"]');
-                var captchaField = form.querySelector('input[name="' + captchaFieldName + '"]');
+                var usernameField = form.querySelector('input[name="' + usernameFieldName + '"]') || form.querySelector('input[id="' + usernameFieldName + '"]');
+                var passwordField = form.querySelector('input[name="' + passwordFieldName + '"]') || form.querySelector('input[id="' + passwordFieldName + '"]');
+                var captchaField = form.querySelector('input[name="' + captchaFieldName + '"]') || form.querySelector('input[id="' + captchaFieldName + '"]');
                 
                 var username = usernameField ? usernameField.value : '';
                 var password = passwordField ? passwordField.value : '';
