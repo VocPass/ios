@@ -330,11 +330,26 @@ struct WebView: UIViewRepresentable {
             guard let currentURL = webView.url?.absoluteString else { return }
             print("🌐 [WebView] 載入完成: \(currentURL)")
 
-            inspectLoginStateAfterPageReady(webView: webView, currentURL: currentURL)
+            startContinuousDetection(for: webView)
         }
 
-        private func inspectLoginStateAfterPageReady(webView: WKWebView, currentURL: String, attempt: Int = 0) {
-            let maxAttempts = 8
+        private var isCheckingLoginState = false
+        private var lastCheckedContentHash: Int?
+
+        private func startContinuousDetection(for webView: WKWebView) {
+            guard !isCheckingLoginState else { return }
+            isCheckingLoginState = true
+            inspectLoginStatePeriodic(webView: webView)
+        }
+
+        private func inspectLoginStatePeriodic(webView: WKWebView) {
+            if hasLoggedIn {
+                isCheckingLoginState = false
+                return
+            }
+
+            let currentURL = webView.url?.absoluteString ?? ""
+
             let pageStateScript = """
             (function() {
                 return {
@@ -345,39 +360,54 @@ struct WebView: UIViewRepresentable {
             })();
             """
 
-            webView.evaluateJavaScript(pageStateScript) { result, error in
+            webView.evaluateJavaScript(pageStateScript) { [weak self] result, error in
+                guard let self = self else { return }
+
+                defer {
+                    if !self.hasLoggedIn {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                            self?.inspectLoginStatePeriodic(webView: webView)
+                        }
+                    } else {
+                        self.isCheckingLoginState = false
+                    }
+                }
+
                 if let error = error {
-                    print("❌ [WebView] 讀取頁面內容失敗: \(error.localizedDescription)")
+                    // print("❌ [WebView] 讀取頁面內容失敗: \(error.localizedDescription)")
                     return
                 }
 
-                guard let payload = result as? [String: Any] else {
-                    print("❌ [WebView] 頁面內容格式錯誤")
-                    return
-                }
+                guard let payload = result as? [String: Any] else { return }
 
                 let readyState = (payload["readyState"] as? String ?? "").lowercased()
                 let html = payload["html"] as? String ?? ""
                 let text = payload["text"] as? String ?? ""
 
-                if readyState != "complete", attempt < maxAttempts {
-                    print("⏳ [WebView] 頁面尚未完全載入（readyState=\(readyState)），延後偵測（\(attempt + 1)/\(maxAttempts)）")
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                        self.inspectLoginStateAfterPageReady(webView: webView, currentURL: currentURL, attempt: attempt + 1)
-                    }
+                // 為了避免每秒印出大量日誌或做重複的檢查，我們可以比較內容的 hash
+                let contentHash = html.hashValue ^ text.hashValue
+                if self.lastCheckedContentHash == contentHash {
+                    // 內容沒有變更，跳過本次檢查
+                    return
+                }
+                self.lastCheckedContentHash = contentHash
+
+                if readyState != "complete" && readyState != "interactive" {
                     return
                 }
 
                 print("🧾 [WebView] 開始登入關鍵字偵測（readyState=\(readyState)）")
-                self.logHTML(html, currentURL: currentURL)
+                // self.logHTML(html, currentURL: currentURL) // 若需要大量 debug HTML 可以取消註解，但請注意每秒可能會輸出很多
 
                 let searchableText = "\(text)\n\(html)".lowercased()
                 let matchedKeyword = self.loginSuccessKeywords.first {
                     searchableText.contains($0.lowercased())
                 }
 
-                if let matchedKeyword, !self.hasLoggedIn {
+                if let matchedKeyword = matchedKeyword {
                     print("✅ [WebView] 偵測到登入成功關鍵字: \(matchedKeyword)，等待 cookies 載入...")
+
+                    self.hasLoggedIn = true // 標記為已登入，終止下一次檢查
 
                     webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { cookies in
                         print("🍪 [WebView] 登入成功頁面 cookies 數量: \(cookies.count)")
@@ -387,15 +417,12 @@ struct WebView: UIViewRepresentable {
 
                         DispatchQueue.main.async {
                             self.parent.cookies = cookies
-                            self.hasLoggedIn = true
                             self.parent.isLoggingIn = false
                             self.parent.isLoggedIn = true
                             print("🔐 [WebView] 登入狀態已設定為 true")
                         }
                     }
                 } else {
-                    print("ℹ️ [WebView] 本次未偵測到登入關鍵字，關鍵字清單: \(self.loginSuccessKeywords)")
-
                     webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { cookies in
                         DispatchQueue.main.async {
                             self.parent.cookies = cookies
