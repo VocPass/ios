@@ -519,10 +519,48 @@ class APIService: ObservableObject {
         return results.sorted { $0.total > $1.total }
     }
 
+    // MARK: - Ping（驗證 session 是否仍有效）
+    func pingAndRestoreSession() async -> Bool {
+        let savedCookies = CacheService.shared.loadCookies()
+        guard !savedCookies.isEmpty,
+              let school = SchoolConfigManager.shared.selectedSchool else {
+            return false
+        }
+
+        guard var components = URLComponents(string: "\(AppConfig.vocPassAPIHost)/ping") else {
+            return false
+        }
+        components.queryItems = [URLQueryItem(name: "school_name", value: school.name)]
+        guard let url = components.url else { return false }
+
+        let cookieString = savedCookies.map { "\($0.name)=\($0.value)" }.joined(separator: "; ")
+        var req = URLRequest(url: url)
+        req.httpMethod = "GET"
+        req.setValue(cookieString, forHTTPHeaderField: "Cookie")
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        do {
+            let (_, response) = try await URLSession.shared.data(for: req)
+            guard let http = response as? HTTPURLResponse else { return false }
+            print("🏓 [API] Ping 回應: \(http.statusCode)")
+            if http.statusCode == 200 {
+                await MainActor.run {
+                    self.cookies = savedCookies
+                    self.isLoggedIn = true
+                }
+                return true
+            }
+        } catch {
+            print("❌ [API] Ping 失敗: \(error.localizedDescription)")
+        }
+        return false
+    }
+
     // MARK: - 登出
     func logout() {
         cookies = []
         isLoggedIn = false
+        CacheService.shared.clearCookies()
         clearAllCookiesAndWebsiteData()
     }
 

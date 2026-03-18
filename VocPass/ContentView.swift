@@ -12,10 +12,14 @@ struct ContentView: View {
     @StateObject private var schoolConfigManager = SchoolConfigManager.shared
     @State private var hasSeenOnboarding = CacheService.shared.hasSeenOnboarding
     @State private var hasSelectedSchool = SchoolConfigManager.shared.hasSelectedSchool
+    @State private var isCheckingSession = true
 
     var body: some View {
         Group {
-            if !hasSeenOnboarding {
+            if isCheckingSession {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if !hasSeenOnboarding {
                 OnboardingView(hasSeenOnboarding: $hasSeenOnboarding)
             } else if !hasSelectedSchool {
                 SchoolSelectionView(hasSelectedSchool: $hasSelectedSchool)
@@ -43,6 +47,12 @@ struct ContentView: View {
         .onAppear {
             if schoolConfigManager.schools.isEmpty {
                 schoolConfigManager.loadSchools()
+            }
+            Task {
+                if hasSeenOnboarding && hasSelectedSchool {
+                    await apiService.pingAndRestoreSession()
+                }
+                await MainActor.run { isCheckingSession = false }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .schoolChanged)) { _ in
@@ -123,6 +133,7 @@ struct LoginView: View {
                     for cookie in cookies {
                         print("  - \(cookie.name): \(cookie.value.prefix(20))...")
                     }
+                    CacheService.shared.saveCookies(cookies)
                     apiService.cookies = cookies
                     apiService.isLoggedIn = true
                 }

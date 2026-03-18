@@ -29,6 +29,7 @@ class CacheService {
         case autoStartDynamicIsland = "auto_start_dynamic_island"
         case autoStartMinutesBefore = "auto_start_minutes_before"
         case savedClassName = "saved_class_name"
+        case savedCookies = "saved_cookies"
     }
 
     // MARK: - Dynamic Island Settings
@@ -92,6 +93,30 @@ class CacheService {
         savedSchoolCode = nil
         rememberCredentials = false
         print("🔑 [Cache] 已清除登入憑證")
+    }
+
+    // MARK: - Cookies Persistence
+    func saveCookies(_ cookies: [HTTPCookie]) {
+        let props = cookies.compactMap { $0.properties }
+        if let data = try? NSKeyedArchiver.archivedData(withRootObject: props, requiringSecureCoding: false) {
+            userDefaults.set(data, forKey: CacheKey.savedCookies.rawValue)
+            print("🍪 [Cache] 已儲存 \(cookies.count) 個 cookies")
+        }
+    }
+
+    func loadCookies() -> [HTTPCookie] {
+        guard let data = userDefaults.data(forKey: CacheKey.savedCookies.rawValue),
+              let props = try? NSKeyedUnarchiver.unarchiveTopLevelObjectWithData(data) as? [[HTTPCookiePropertyKey: Any]] else {
+            return []
+        }
+        let cookies = props.compactMap { HTTPCookie(properties: $0) }
+        print("🍪 [Cache] 載入 \(cookies.count) 個 cookies")
+        return cookies
+    }
+
+    func clearCookies() {
+        userDefaults.removeObject(forKey: CacheKey.savedCookies.rawValue)
+        print("🍪 [Cache] 已清除 cookies")
     }
 
     // MARK: - Curriculum Cache
