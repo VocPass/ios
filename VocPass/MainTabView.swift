@@ -185,6 +185,16 @@ struct SettingsView: View {
                                 .foregroundColor(.secondary)
                         }
                     }
+                    Link(destination: URL(string: "https://VocPass.com")!) {
+                        HStack {
+                            Image(systemName: "globe")
+                            Text("官網")
+                            Spacer()
+                            Image(systemName: "arrow.up.right.square")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
                 }
 
                 Section {
