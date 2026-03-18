@@ -374,7 +374,6 @@ struct WebView: UIViewRepresentable {
                 }
 
                 if let error = error {
-                    // print("❌ [WebView] 讀取頁面內容失敗: \(error.localizedDescription)")
                     return
                 }
 
@@ -384,10 +383,8 @@ struct WebView: UIViewRepresentable {
                 let html = payload["html"] as? String ?? ""
                 let text = payload["text"] as? String ?? ""
 
-                // 為了避免每秒印出大量日誌或做重複的檢查，我們可以比較內容的 hash
                 let contentHash = html.hashValue ^ text.hashValue
                 if self.lastCheckedContentHash == contentHash {
-                    // 內容沒有變更，跳過本次檢查
                     return
                 }
                 self.lastCheckedContentHash = contentHash
@@ -397,7 +394,6 @@ struct WebView: UIViewRepresentable {
                 }
 
                 print("🧾 [WebView] 開始登入關鍵字偵測（readyState=\(readyState)）")
-                // self.logHTML(html, currentURL: currentURL) // 若需要大量 debug HTML 可以取消註解，但請注意每秒可能會輸出很多
 
                 let searchableText = "\(text)\n\(html)".lowercased()
                 let matchedKeyword = self.loginSuccessKeywords.first {
@@ -407,16 +403,41 @@ struct WebView: UIViewRepresentable {
                 if let matchedKeyword = matchedKeyword {
                     print("✅ [WebView] 偵測到登入成功關鍵字: \(matchedKeyword)，等待 cookies 載入...")
 
-                    self.hasLoggedIn = true // 標記為已登入，終止下一次檢查
+                    self.hasLoggedIn = true
 
-                    webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { cookies in
-                        print("🍪 [WebView] 登入成功頁面 cookies 數量: \(cookies.count)")
-                        for cookie in cookies {
+                    webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { [weak self] cookies in
+                        guard let self = self else { return }
+                        var finalCookies = cookies
+
+                        if let url = URL(string: currentURL),
+                           let host = url.host,
+                           let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+                           let queryItems = components.queryItems {
+
+                            for item in queryItems {
+                                if let newCookie = HTTPCookie(properties: [
+                                    .domain: host,
+                                    .path: "/",
+                                    .name: item.name,
+                                    .value: item.value ?? "",
+                                    .secure: "TRUE",
+                                    .expires: Date().addingTimeInterval(3600 * 24 * 30)
+                                ]) {
+                                    if !finalCookies.contains(where: { $0.name == newCookie.name }) {
+                                        finalCookies.append(newCookie)
+                                    }
+                                    webView.configuration.websiteDataStore.httpCookieStore.setCookie(newCookie)
+                                }
+                            }
+                        }
+
+                        print("🍪 [WebView] 登入成功頁面 cookies 數量: \(finalCookies.count)")
+                        for cookie in finalCookies {
                             print("  - \(cookie.name): \(cookie.value.prefix(30))...")
                         }
 
                         DispatchQueue.main.async {
-                            self.parent.cookies = cookies
+                            self.parent.cookies = finalCookies
                             self.parent.isLoggingIn = false
                             self.parent.isLoggedIn = true
                             print("🔐 [WebView] 登入狀態已設定為 true")
