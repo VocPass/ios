@@ -34,6 +34,7 @@ struct WebView: UIViewRepresentable {
         contentController.add(context.coordinator, name: "formSubmit")
         contentController.add(context.coordinator, name: "saveCredentials")
         contentController.add(context.coordinator, name: "recognizeCaptcha")
+        contentController.add(context.coordinator, name: "urlTracking")
 
         let username = savedUsername ?? ""
         let password = savedPassword ?? ""
@@ -44,6 +45,40 @@ struct WebView: UIViewRepresentable {
         let captchaImageSelector = school.login.captchaImage?.selector.isEmpty == false
             ? school.login.captchaImage?.selector ?? "captcha"
             : "captcha"
+
+        let urlTrackingScript = WKUserScript(
+            source: """
+            (function() {
+                function trackURL(url) {
+                    if (!url || typeof url !== 'string') return;
+                    try {
+                        var absolute = new URL(url, window.location.href).href;
+                        window.webkit.messageHandlers.urlTracking.postMessage(absolute);
+                    } catch(e) {
+                        window.webkit.messageHandlers.urlTracking.postMessage(url);
+                    }
+                }
+
+                // 攔截 fetch
+                var originalFetch = window.fetch;
+                window.fetch = function(input, init) {
+                    var url = (typeof input === 'string') ? input : (input && input.url) ? input.url : String(input);
+                    trackURL(url);
+                    return originalFetch.apply(this, arguments);
+                };
+
+                // 攔截 XMLHttpRequest
+                var originalOpen = XMLHttpRequest.prototype.open;
+                XMLHttpRequest.prototype.open = function(method, url) {
+                    trackURL(String(url));
+                    return originalOpen.apply(this, arguments);
+                };
+            })();
+            """,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: false
+        )
+        contentController.addUserScript(urlTrackingScript)
 
         let script = WKUserScript(
             source: """
@@ -272,6 +307,10 @@ struct WebView: UIViewRepresentable {
                         )
                     }
                 }
+            } else if message.name == "urlTracking" {
+                if let url = message.body as? String {
+                    recordURL(url)
+                }
             } else if message.name == "recognizeCaptcha" {
                 guard let webView = self.currentWebView,
                       let messageDict = message.body as? [String: Any],
@@ -314,6 +353,13 @@ struct WebView: UIViewRepresentable {
             }
         }
 
+        func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+            if let url = navigationAction.request.url?.absoluteString {
+                recordURL(url)
+            }
+            decisionHandler(.allow)
+        }
+
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
             guard let currentURL = webView.url?.absoluteString.lowercased() else { return }
             print("🔄 [WebView] 開始載入: \(currentURL)")
@@ -330,11 +376,20 @@ struct WebView: UIViewRepresentable {
             guard let currentURL = webView.url?.absoluteString else { return }
             print("🌐 [WebView] 載入完成: \(currentURL)")
 
+            recordURL(currentURL)
+
             startContinuousDetection(for: webView)
         }
 
         private var isCheckingLoginState = false
         private var lastCheckedContentHash: Int?
+        private var visitedURLs: [String] = []
+
+        private func recordURL(_ url: String) {
+            guard !url.isEmpty, !visitedURLs.contains(url) else { return }
+            visitedURLs.append(url)
+            print("📌 [WebView] 記錄 URL（共 \(visitedURLs.count) 筆）: \(url)")
+        }
 
         private func startContinuousDetection(for webView: WKWebView) {
             guard !isCheckingLoginState else { return }
@@ -409,10 +464,11 @@ struct WebView: UIViewRepresentable {
                         guard let self = self else { return }
                         var finalCookies = cookies
 
-                        if let url = URL(string: currentURL),
-                           let host = url.host,
-                           let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-                           let queryItems = components.queryItems {
+                        for urlString in self.visitedURLs {
+                            guard let url = URL(string: urlString),
+                                  let host = url.host,
+                                  let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+                                  let queryItems = components.queryItems else { continue }
 
                             for item in queryItems {
                                 if let newCookie = HTTPCookie(properties: [
