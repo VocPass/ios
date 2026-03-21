@@ -17,7 +17,19 @@ struct CurriculumView: View {
     @State private var isUnsupported = false
 
     private let weekdays = ["一", "二", "三", "四", "五"]
-    private let periods = ["一", "二", "三", "四", "五", "六", "七"]
+    private let periodOrder = ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十",
+                                "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]
+
+    private var periods: [String] {
+        let all = curriculum.values.flatMap { $0.schedule.map { $0.period } }
+        let unique = Array(Set(all)).filter { !$0.isEmpty }
+        return unique.sorted { a, b in
+            let ia = periodOrder.firstIndex(of: a) ?? Int.max
+            let ib = periodOrder.firstIndex(of: b) ?? Int.max
+            if ia != Int.max || ib != Int.max { return ia < ib }
+            return (Int(a) ?? 0) < (Int(b) ?? 0)
+        }
+    }
 
     var body: some View {
         NavigationStack {
