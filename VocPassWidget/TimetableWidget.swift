@@ -190,13 +190,33 @@ private func displaySlots(at now: Date, allSlots: [ScheduleSlot]) -> [ScheduleSl
         var current = allSlots[currentIdx]
         current.isCurrent = true
         result.append(current)
-        // Next 3 upcoming after current
         let upcoming = allSlots[(currentIdx + 1)...].prefix(3)
         result.append(contentsOf: upcoming)
         return result
     }
-    // No current class – show next 4 upcoming
     return Array(allSlots.filter { $0.startTime > now }.prefix(4))
+}
+
+/// 從 `from` 開始往後最多查 7 天，找到有課的那天，回傳 (slots, 那天的 Date)
+private func nextAvailableSlots(
+    from date: Date,
+    timetable: WTimetableData,
+    manualCurriculum: [String: String],
+    manualPeriodTimes: [String: WPeriodTime]
+) -> (slots: [ScheduleSlot], day: Date) {
+    let cal = Calendar.current
+    for offset in 0...6 {
+        guard let targetDay = cal.date(byAdding: .day, value: offset, to: cal.startOfDay(for: date)) else { continue }
+        let allSlots = slotsForDay(targetDay, timetable: timetable, manualCurriculum: manualCurriculum, manualPeriodTimes: manualPeriodTimes)
+        let visible: [ScheduleSlot]
+        if offset == 0 {
+            visible = displaySlots(at: date, allSlots: allSlots)
+        } else {
+            visible = Array(allSlots.prefix(4))
+        }
+        if !visible.isEmpty { return (visible, targetDay) }
+    }
+    return ([], cal.startOfDay(for: date))
 }
 
 // MARK: - Timeline Provider
@@ -233,25 +253,27 @@ struct TimetableWidgetProvider: TimelineProvider {
 
         let manualCurriculum  = loadManualCurriculum()
         let manualPeriodTimes = loadManualPeriodTimes()
-        let todaySlots = slotsForDay(now, timetable: timetable, manualCurriculum: manualCurriculum, manualPeriodTimes: manualPeriodTimes)
+        let cal = Calendar.current
 
-        // Refresh at each class start/end boundary (and again at midnight)
+        // Collect refresh boundaries: today's class start/end + midnight for each upcoming day
+        let todayAllSlots = slotsForDay(now, timetable: timetable, manualCurriculum: manualCurriculum, manualPeriodTimes: manualPeriodTimes)
         var refreshDates: [Date] = [now]
-        for slot in todaySlots {
+        for slot in todayAllSlots {
             if slot.startTime > now { refreshDates.append(slot.startTime) }
             if slot.endTime   > now { refreshDates.append(slot.endTime) }
         }
-        let cal = Calendar.current
-        if let tomorrow = cal.date(byAdding: .day, value: 1, to: now) {
-            refreshDates.append(cal.startOfDay(for: tomorrow))
+        for offset in 1...7 {
+            if let day = cal.date(byAdding: .day, value: offset, to: now) {
+                refreshDates.append(cal.startOfDay(for: day))
+            }
         }
 
         let entries = refreshDates.sorted().map { date -> TimetableWidgetEntry in
-            let slots = slotsForDay(date, timetable: timetable, manualCurriculum: manualCurriculum, manualPeriodTimes: manualPeriodTimes)
+            let (slots, day) = nextAvailableSlots(from: date, timetable: timetable, manualCurriculum: manualCurriculum, manualPeriodTimes: manualPeriodTimes)
             return TimetableWidgetEntry(
                 date: date,
-                slots: displaySlots(at: date, allSlots: slots),
-                weekdayLabel: weekdayChineseLabel(for: date),
+                slots: slots,
+                weekdayLabel: weekdayChineseLabel(for: day),
                 hasTimetable: true
             )
         }
@@ -264,11 +286,11 @@ struct TimetableWidgetProvider: TimelineProvider {
         guard let timetable = loadTimetable() else {
             return TimetableWidgetEntry(date: date, slots: [], weekdayLabel: weekdayChineseLabel(for: date), hasTimetable: false)
         }
-        let all = slotsForDay(date, timetable: timetable, manualCurriculum: loadManualCurriculum(), manualPeriodTimes: loadManualPeriodTimes())
+        let (slots, day) = nextAvailableSlots(from: date, timetable: timetable, manualCurriculum: loadManualCurriculum(), manualPeriodTimes: loadManualPeriodTimes())
         return TimetableWidgetEntry(
             date: date,
-            slots: displaySlots(at: date, allSlots: all),
-            weekdayLabel: weekdayChineseLabel(for: date),
+            slots: slots,
+            weekdayLabel: weekdayChineseLabel(for: day),
             hasTimetable: true
         )
     }
@@ -292,12 +314,12 @@ struct TimetableWidgetEntryView: View {
         }
     }
 
-    // MARK: Small widget – 只顯示目前／下一節
+    // MARK: Small widget – 只顯示目前這節（或下一節）
 
     private var smallView: some View {
         let current = entry.slots.first(where: { $0.isCurrent })
-        let next = entry.slots.first(where: { !$0.isCurrent })
-        return VStack(alignment: .leading, spacing: 6) {
+        let featured = current ?? entry.slots.first
+        return VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Image(systemName: "calendar")
                     .font(.caption2.weight(.semibold))
@@ -308,49 +330,34 @@ struct TimetableWidgetEntryView: View {
                 Spacer()
             }
             Spacer(minLength: 0)
-            if let cur = current {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("第\(cur.period)節")
-                        .font(.caption2)
-                        .foregroundStyle(.blue)
-                    Text(cur.subject)
-                        .font(.system(size: 16, weight: .bold))
+            if let slot = featured {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(current != nil ? "上課中" : "下一節")
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(current != nil ? .blue : .secondary)
+                    Text(slot.subject)
+                        .font(.system(size: 17, weight: .bold))
                         .lineLimit(2)
-                    Text(cur.endTime, style: .timer)
-                        .font(.system(size: 12).monospacedDigit())
+                        .minimumScaleFactor(0.8)
+                    if current != nil {
+                        Label {
+                            Text(slot.endTime, style: .timer)
+                                .monospacedDigit()
+                        } icon: {
+                            Image(systemName: "timer")
+                        }
+                        .font(.system(size: 12))
                         .foregroundStyle(.orange)
-                }
-            } else if let nxt = next {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("下一節")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    Text(nxt.subject)
-                        .font(.system(size: 16, weight: .bold))
-                        .lineLimit(2)
-                    Text(nxt.startTime, style: .time)
-                        .font(.system(size: 12).monospacedDigit())
-                        .foregroundStyle(.green)
+                    } else {
+                        Text(slot.startTime, style: .time)
+                            .font(.system(size: 13).monospacedDigit())
+                            .foregroundStyle(.green)
+                    }
                 }
             }
             Spacer(minLength: 0)
-            if let nxt = next, current != nil {
-                Divider()
-                HStack(spacing: 4) {
-                    Text("接下來")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    Text(nxt.subject)
-                        .font(.caption2.weight(.medium))
-                        .lineLimit(1)
-                    Spacer()
-                    Text(nxt.startTime, style: .time)
-                        .font(.caption2.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                }
-            }
         }
-        .padding(12)
+        .padding(14)
         .containerBackground(for: .widget) { Color(.systemBackground) }
     }
 
@@ -361,7 +368,7 @@ struct TimetableWidgetEntryView: View {
             header
                 .padding(.bottom, 7)
             VStack(spacing: 4) {
-                ForEach(Array(entry.slots.enumerated()), id: \.offset) { _, slot in
+                ForEach(Array(entry.slots.prefix(4).enumerated()), id: \.offset) { _, slot in
                     SlotRowView(slot: slot)
                 }
             }
@@ -393,7 +400,7 @@ struct TimetableWidgetEntryView: View {
             Image(systemName: "checkmark.circle.fill")
                 .font(.title2)
                 .foregroundStyle(.green)
-            Text("今日無課")
+            Text("近期無課")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -422,7 +429,6 @@ private struct SlotRowView: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            // Period badge
             Text(slot.period)
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(slot.isCurrent ? .white : .secondary)
@@ -430,7 +436,6 @@ private struct SlotRowView: View {
                 .background(slot.isCurrent ? Color.blue : Color(.systemFill))
                 .clipShape(RoundedRectangle(cornerRadius: 5))
 
-            // Subject
             Text(slot.subject)
                 .font(.system(size: 13, weight: slot.isCurrent ? .semibold : .regular))
                 .foregroundStyle(slot.isCurrent ? .primary : Color(.label).opacity(0.7))
@@ -438,9 +443,7 @@ private struct SlotRowView: View {
 
             Spacer(minLength: 0)
 
-            // Time range
             if slot.isCurrent {
-                // Show countdown to end of class
                 Text(slot.endTime, style: .timer)
                     .font(.system(size: 11).monospacedDigit())
                     .foregroundStyle(.orange)
@@ -481,7 +484,8 @@ struct TimetableWidget: Widget {
         date: .now,
         slots: [
             ScheduleSlot(period: "三", subject: "資訊科技實習", startTime: .now.addingTimeInterval(-10*60), endTime: .now.addingTimeInterval(40*60),  isCurrent: true),
-            ScheduleSlot(period: "四", subject: "選修跨班",     startTime: .now.addingTimeInterval(50*60),  endTime: .now.addingTimeInterval(100*60), isCurrent: false)
+            ScheduleSlot(period: "四", subject: "選修跨班",     startTime: .now.addingTimeInterval(50*60),  endTime: .now.addingTimeInterval(100*60), isCurrent: false),
+            ScheduleSlot(period: "五", subject: "統整數學",     startTime: .now.addingTimeInterval(120*60), endTime: .now.addingTimeInterval(170*60), isCurrent: false)
         ],
         weekdayLabel: "週三",
         hasTimetable: true

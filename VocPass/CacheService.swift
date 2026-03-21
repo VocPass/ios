@@ -307,6 +307,23 @@ class CacheService {
         print("📦 [Cache] Cleared timetable cache")
     }
 
+    // MARK: - Widget Sync
+
+    /// 將已快取的課表同步到 App Group 共享容器，讓 widget 可以讀取。
+    func syncTimetableToWidget() {
+        guard let data = userDefaults.data(forKey: CacheKey.timetable.rawValue) else { return }
+        sharedDefaults?.set(data, forKey: CacheKey.timetable.rawValue)
+
+        if let manualData = userDefaults.data(forKey: CacheKey.manualCurriculum.rawValue) {
+            sharedDefaults?.set(manualData, forKey: CacheKey.manualCurriculum.rawValue)
+        }
+        if let periodData = userDefaults.data(forKey: CacheKey.manualPeriodTimes.rawValue) {
+            sharedDefaults?.set(periodData, forKey: CacheKey.manualPeriodTimes.rawValue)
+        }
+
+        WidgetCenter.shared.reloadAllTimelines()
+    }
+
     // MARK: - Cache Info
     func getCurriculumCacheAge() -> TimeInterval? {
         guard let timestamp = userDefaults.object(forKey: CacheKey.curriculumTimestamp.rawValue) as? Date else {

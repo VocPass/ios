@@ -191,6 +191,7 @@ final class DynamicIslandService: ObservableObject {
         }
 
         reconnectIfNeeded()
+        CacheService.shared.syncTimetableToWidget()
 
         let now = Date()
         let state = makeContentState(at: now)

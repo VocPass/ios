@@ -44,6 +44,7 @@ struct ContentView: View {
             Task {
                 if hasSeenOnboarding && hasSelectedSchool {
                     await apiService.pingAndRestoreSession()
+                    CacheService.shared.syncTimetableToWidget()
                 }
                 await MainActor.run { isCheckingSession = false }
             }
