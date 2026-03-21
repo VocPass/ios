@@ -10,5 +10,6 @@ import SwiftUI
 struct VocPassWidgetBundle: WidgetBundle {
     var body: some Widget {
         ClassScheduleWidgetLiveActivity()
+        TimetableWidget()
     }
 }

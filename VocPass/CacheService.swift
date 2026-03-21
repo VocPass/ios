@@ -6,11 +6,15 @@
 //
 
 import Foundation
+import WidgetKit
+
+let kSharedAppGroupID = "group.com.08hans.VocPass"
 
 class CacheService {
     static let shared = CacheService()
 
     private let userDefaults = UserDefaults.standard
+    private var sharedDefaults: UserDefaults? { UserDefaults(suiteName: kSharedAppGroupID) }
     private let cacheExpirationInterval: TimeInterval = 24 * 60 * 60 // 1 day in seconds
 
     // MARK: - Cache Keys
@@ -60,6 +64,8 @@ class CacheService {
         set {
             if let data = try? JSONEncoder().encode(newValue) {
                 userDefaults.set(data, forKey: CacheKey.manualCurriculum.rawValue)
+                sharedDefaults?.set(data, forKey: CacheKey.manualCurriculum.rawValue)
+                WidgetCenter.shared.reloadAllTimelines()
             }
         }
     }
@@ -74,6 +80,8 @@ class CacheService {
         set {
             if let data = try? JSONEncoder().encode(newValue) {
                 userDefaults.set(data, forKey: CacheKey.manualPeriodTimes.rawValue)
+                sharedDefaults?.set(data, forKey: CacheKey.manualPeriodTimes.rawValue)
+                WidgetCenter.shared.reloadAllTimelines()
             }
         }
     }
@@ -285,6 +293,8 @@ class CacheService {
             let data = try JSONEncoder().encode(timetable)
             userDefaults.set(data, forKey: CacheKey.timetable.rawValue)
             userDefaults.set(Date(), forKey: CacheKey.timetableTimestamp.rawValue)
+            sharedDefaults?.set(data, forKey: CacheKey.timetable.rawValue)
+            WidgetCenter.shared.reloadAllTimelines()
             print("📦 [Cache] Saved timetable (\(timetable.entries.count) entries)")
         } catch {
             print("📦 [Cache] Failed to encode timetable: \(error)")
