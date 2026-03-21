@@ -31,5 +31,4 @@ struct ClassScheduleActivityAttributes: ActivityAttributes {
         var todaySlots: [DaySlot]
     }
 
-    var className: String
 }

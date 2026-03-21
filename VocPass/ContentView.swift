@@ -13,6 +13,8 @@ struct ContentView: View {
     @State private var hasSeenOnboarding = CacheService.shared.hasSeenOnboarding
     @State private var hasSelectedSchool = SchoolConfigManager.shared.hasSelectedSchool
     @State private var isCheckingSession = true
+    @State private var selectedTab = 0
+    @State private var showSchoolPicker = false
 
     var body: some View {
         Group {
@@ -21,27 +23,18 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if !hasSeenOnboarding {
                 OnboardingView(hasSeenOnboarding: $hasSeenOnboarding)
-            } else if !hasSelectedSchool {
-                SchoolSelectionView(hasSelectedSchool: $hasSelectedSchool)
-            } else if apiService.isLoggedIn {
-                MainTabView()
-                    .environmentObject(apiService)
-            } else if let school = schoolConfigManager.selectedSchool,
-                      let loginURL = school.loginURL {
-                LoginView(school: school, targetURL: loginURL)
-                    .environmentObject(apiService)
             } else {
-                VStack(spacing: 16) {
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.system(size: 50))
-                        .foregroundColor(.orange)
-                    Text("無法載入學校配置")
-                        .font(.headline)
-                    Button("重新選擇學校") {
-                        hasSelectedSchool = false
+                MainTabView(selectedTab: $selectedTab)
+                    .environmentObject(apiService)
+                    .sheet(isPresented: .init(
+                        get: { !hasSelectedSchool || showSchoolPicker },
+                        set: { if !$0 { showSchoolPicker = false } }
+                    )) {
+                        SchoolSelectionView(hasSelectedSchool: $hasSelectedSchool) {
+                            selectedTab = 1
+                        }
+                        .interactiveDismissDisabled(!hasSelectedSchool)
                     }
-                    .buttonStyle(.bordered)
-                }
             }
         }
         .onAppear {
@@ -57,6 +50,9 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .schoolChanged)) { _ in
             hasSelectedSchool = schoolConfigManager.hasSelectedSchool
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .showSchoolPicker)) { _ in
+            showSchoolPicker = true
         }
     }
 }
@@ -151,6 +147,7 @@ struct LoginView: View {
 // MARK: - 通知名稱
 extension Notification.Name {
     static let schoolChanged = Notification.Name("schoolChanged")
+    static let showSchoolPicker = Notification.Name("showSchoolPicker")
     static let captchaRecognitionStarted = Notification.Name("captchaRecognitionStarted")
     static let captchaRecognitionCompleted = Notification.Name("captchaRecognitionCompleted")
 }

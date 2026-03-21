@@ -9,8 +9,11 @@ import SwiftUI
 
 struct SchoolSelectionView: View {
     @Environment(\.openURL) private var openURL
+    @Environment(\.dismiss) private var dismiss
     @ObservedObject var configManager = SchoolConfigManager.shared
+    @ObservedObject private var apiService = APIService.shared
     @Binding var hasSelectedSchool: Bool
+    var onSchoolSelected: (() -> Void)? = nil
     @State private var showBeta = false
     @State private var searchText = ""
 
@@ -152,6 +155,19 @@ struct SchoolSelectionView: View {
             }
             .background(Color(.systemGroupedBackground))
             .navigationBarHidden(true)
+            .overlay(alignment: .topTrailing) {
+                if hasSelectedSchool {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.title2)
+                            .symbolRenderingMode(.hierarchical)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding()
+                }
+            }
         }
         .onAppear {
             if configManager.schools.isEmpty {
@@ -161,8 +177,12 @@ struct SchoolSelectionView: View {
     }
     
     private func selectSchool(_ school: SchoolConfig) {
+        if configManager.hasSelectedSchool {
+            apiService.logout()
+        }
         configManager.selectSchool(school)
         hasSelectedSchool = true
+        onSchoolSelected?()
     }
 }
 

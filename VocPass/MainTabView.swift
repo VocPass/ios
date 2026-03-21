@@ -9,33 +9,106 @@ import SwiftUI
 
 struct MainTabView: View {
     @EnvironmentObject var apiService: APIService
+    @Binding var selectedTab: Int
 
     var body: some View {
-        TabView {
-            HomeView()
+        TabView(selection: $selectedTab) {
+            HomePageView()
                 .tabItem {
-                    Label("獎懲", systemImage: "star.fill")
+                    Label("首頁", systemImage: "house.fill")
                 }
+                .tag(0)
 
-            CurriculumView()
+            SchoolAffairsView()
                 .tabItem {
-                    Label("課表", systemImage: "calendar")
+                    Label("校務", systemImage: "building.columns")
                 }
-
-            AttendanceView()
-                .tabItem {
-                    Label("缺曠", systemImage: "person.badge.clock")
-                }
-
-            ScoreView()
-                .tabItem {
-                    Label("成績", systemImage: "chart.bar.fill")
-                }
+                .tag(1)
 
             SettingsView()
                 .tabItem {
                     Label("設定", systemImage: "gearshape.fill")
                 }
+                .tag(2)
+        }
+    }
+}
+
+// MARK: - 首頁
+struct HomePageView: View {
+    @EnvironmentObject var apiService: APIService
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 24) {
+                Spacer()
+
+                Image(systemName: "graduationcap.fill")
+                    .font(.system(size: 64))
+                    .foregroundStyle(.blue)
+
+                Text("VocPass")
+                    .font(.largeTitle)
+                    .fontWeight(.bold)
+
+                if apiService.isLoggedIn {
+                    if let school = SchoolConfigManager.shared.selectedSchool {
+                        Text(school.name)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    Label("已登入", systemImage: "checkmark.circle.fill")
+                        .font(.subheadline)
+                        .foregroundStyle(.green)
+                } else {
+                    Text("這裡正在籌備新功能，先去校務頁面登入吧！")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+            }
+            .navigationTitle("首頁")
+        }
+    }
+}
+
+// MARK: - 校務
+struct SchoolAffairsView: View {
+    @EnvironmentObject var apiService: APIService
+    @StateObject private var schoolConfigManager = SchoolConfigManager.shared
+
+    var body: some View {
+        if apiService.isLoggedIn {
+            NavigationStack {
+                List {
+                    NavigationLink(destination: HomeView()) {
+                        Label("獎懲", systemImage: "star.fill")
+                    }
+                    NavigationLink(destination: CurriculumView()) {
+                        Label("課表", systemImage: "calendar")
+                    }
+                    NavigationLink(destination: AttendanceView()) {
+                        Label("缺曠", systemImage: "person.badge.clock")
+                    }
+                    NavigationLink(destination: ScoreView()) {
+                        Label("成績", systemImage: "chart.bar.fill")
+                    }
+                }
+                .navigationTitle("校務")
+            }
+        } else if let school = schoolConfigManager.selectedSchool,
+                  let loginURL = school.loginURL {
+            LoginView(school: school, targetURL: loginURL)
+                .environmentObject(apiService)
+        } else {
+            VStack(spacing: 16) {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.system(size: 50))
+                    .foregroundColor(.orange)
+                Text("無法載入學校配置")
+                    .font(.headline)
+            }
         }
     }
 }
@@ -47,7 +120,6 @@ struct SettingsView: View {
     @State private var showCookies = false
     @State private var autoStart = CacheService.shared.autoStartDynamicIsland
     @State private var minutesBefore = CacheService.shared.autoStartMinutesBefore
-    @State private var className = CacheService.shared.savedClassName
 
     var body: some View {
         NavigationStack {
@@ -62,23 +134,24 @@ struct SettingsView: View {
                                 .foregroundColor(.secondary)
                         }
                     }
-                    
+
                     Button {
-                        SchoolConfigManager.shared.clearSelectedSchool()
-                        apiService.logout()
+                        NotificationCenter.default.post(name: .showSchoolPicker, object: nil)
                     } label: {
                         HStack {
                             Image(systemName: "arrow.left.arrow.right")
                             Text("切換學校")
                         }
                     }
-                    
-                    Button(role: .destructive) {
-                        apiService.logout()
-                    } label: {
-                        HStack {
-                            Image(systemName: "rectangle.portrait.and.arrow.right")
-                            Text("登出")
+
+                    if apiService.isLoggedIn {
+                        Button(role: .destructive) {
+                            apiService.logout()
+                        } label: {
+                            HStack {
+                                Image(systemName: "rectangle.portrait.and.arrow.right")
+                                Text("登出")
+                            }
                         }
                     }
                 }
@@ -100,8 +173,7 @@ struct SettingsView: View {
                         if dynamicIsland.isActivityRunning {
                             dynamicIsland.endActivity()
                         } else {
-                            let name = className.isEmpty ? "我的課表" : className
-                            Task { await dynamicIsland.startActivity(className: name) }
+                            Task { await dynamicIsland.startActivity() }
                         }
                     } label: {
                         Label(
@@ -111,7 +183,6 @@ struct SettingsView: View {
                         .foregroundStyle(dynamicIsland.isActivityRunning ? .red : .blue)
                     }
 
-                    // 自動啟動開關
                     Toggle(isOn: $autoStart) {
                         Label("上課前自動顯示", systemImage: "clock.badge.checkmark")
                     }
@@ -139,19 +210,6 @@ struct SettingsView: View {
                         }
                     }
 
-                    HStack {
-                        Label("班級名稱", systemImage: "person.3")
-                        Spacer()
-                        TextField("例：訊三孝", text: $className)
-                            .multilineTextAlignment(.trailing)
-                            .foregroundStyle(.secondary)
-                            .onSubmit {
-                                CacheService.shared.savedClassName = className
-                            }
-                            .onChange(of: className) { _, newValue in
-                                CacheService.shared.savedClassName = newValue
-                            }
-                    }
                 } header: {
                     Text("即時動態 / 動態島")
                 } footer: {
@@ -174,7 +232,7 @@ struct SettingsView: View {
                         Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown")
                             .foregroundColor(.secondary)
                     }
-                    
+
                     Link(destination: URL(string: "https://github.com/VocPass")!) {
                         HStack {
                             Image(systemName: "link")
@@ -231,6 +289,6 @@ struct SettingsView: View {
 }
 
 #Preview {
-    MainTabView()
+    MainTabView(selectedTab: .constant(0))
         .environmentObject(APIService.shared)
 }

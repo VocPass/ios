@@ -205,10 +205,8 @@ final class DynamicIslandService: ObservableObject {
             task.setTaskCompleted(success: true)
         } else if CacheService.shared.autoStartDynamicIsland
                     && (!state.currentSubject.isEmpty || !state.nextSubject.isEmpty) {
-            let name = CacheService.shared.savedClassName.isEmpty
-                ? "我的課表" : CacheService.shared.savedClassName
             Task {
-                await self.startActivity(className: name)
+                await self.startActivity()
                 self.scheduleNextBGRefresh(after: now)
                 task.setTaskCompleted(success: true)
             }
@@ -243,15 +241,13 @@ final class DynamicIslandService: ObservableObject {
 
         guard now >= autoStartTime && now <= lastEnd else { return }
 
-        let name = CacheService.shared.savedClassName.isEmpty
-            ? "我的課表" : CacheService.shared.savedClassName
         print("⚡ [DI] 自動啟動 Live Activity")
-        Task { await self.startActivity(className: name) }
+        Task { await self.startActivity() }
     }
 
     // MARK: - 啟動即時動態
 
-    func startActivity(className: String) async {
+    func startActivity() async {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else {
             lastErrorMessage = "系統未允許 Live Activities，請到「設定 > Face ID 與密碼 > 即時動態」開啟。"
             print("⚡ [DI] Live Activities 未授權")
@@ -267,7 +263,7 @@ final class DynamicIslandService: ObservableObject {
             await old.end(nil, dismissalPolicy: .immediate)
         }
 
-        let attributes = ClassScheduleActivityAttributes(className: className)
+        let attributes = ClassScheduleActivityAttributes()
         let state = makeContentState(at: Date())
 
         do {

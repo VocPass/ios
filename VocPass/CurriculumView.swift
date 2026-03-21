@@ -141,10 +141,7 @@ struct CurriculumView: View {
                     if dynamicIsland.isActivityRunning {
                         dynamicIsland.endActivity()
                     } else {
-                        let name = CacheService.shared.savedClassName.isEmpty
-                            ? "我的課表"
-                            : CacheService.shared.savedClassName
-                        Task { await dynamicIsland.startActivity(className: name) }
+                        Task { await dynamicIsland.startActivity() }
                     }
                 } label: {
                     Label(

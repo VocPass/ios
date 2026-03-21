@@ -28,7 +28,6 @@ class CacheService {
         case rememberCredentials = "remember_credentials"
         case autoStartDynamicIsland = "auto_start_dynamic_island"
         case autoStartMinutesBefore = "auto_start_minutes_before"
-        case savedClassName = "saved_class_name"
         case savedCookies = "saved_cookies"
     }
 
@@ -45,11 +44,6 @@ class CacheService {
             return v == 0 ? 30 : v
         }
         set { userDefaults.set(newValue, forKey: CacheKey.autoStartMinutesBefore.rawValue) }
-    }
-
-    var savedClassName: String {
-        get { userDefaults.string(forKey: CacheKey.savedClassName.rawValue) ?? "" }
-        set { userDefaults.set(newValue, forKey: CacheKey.savedClassName.rawValue) }
     }
 
     // MARK: - Onboarding

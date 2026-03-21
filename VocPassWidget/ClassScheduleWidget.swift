@@ -346,7 +346,7 @@ private struct MinimalView: View {
 
 // MARK: - Preview
 
-#Preview("Notification", as: .content, using: ClassScheduleActivityAttributes(className: "訊三孝")) {
+#Preview("Notification", as: .content, using: ClassScheduleActivityAttributes()) {
     ClassScheduleWidgetLiveActivity()
 } contentStates: {
     ClassScheduleActivityAttributes.ContentState(
