@@ -15,6 +15,7 @@ struct ContentView: View {
     @State private var isCheckingSession = true
     @State private var selectedTab = 0
     @State private var showSchoolPicker = false
+    @State private var schoolPickerDismissed = false
 
     var body: some View {
         Group {
@@ -27,13 +28,12 @@ struct ContentView: View {
                 MainTabView(selectedTab: $selectedTab)
                     .environmentObject(apiService)
                     .sheet(isPresented: .init(
-                        get: { !hasSelectedSchool || showSchoolPicker },
-                        set: { if !$0 { showSchoolPicker = false } }
+                        get: { (!hasSelectedSchool && !schoolPickerDismissed) || showSchoolPicker },
+                        set: { if !$0 { showSchoolPicker = false; schoolPickerDismissed = true } }
                     )) {
                         SchoolSelectionView(hasSelectedSchool: $hasSelectedSchool) {
                             selectedTab = 1
                         }
-                        .interactiveDismissDisabled(!hasSelectedSchool)
                     }
             }
         }
@@ -52,6 +52,7 @@ struct ContentView: View {
             hasSelectedSchool = schoolConfigManager.hasSelectedSchool
         }
         .onReceive(NotificationCenter.default.publisher(for: .showSchoolPicker)) { _ in
+            schoolPickerDismissed = false
             showSchoolPicker = true
         }
     }

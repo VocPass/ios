@@ -103,11 +103,15 @@ struct SchoolAffairsView: View {
                 .environmentObject(apiService)
         } else {
             VStack(spacing: 16) {
-                Image(systemName: "exclamationmark.triangle")
+                Image(systemName: "building.columns.fill")
                     .font(.system(size: 50))
-                    .foregroundColor(.orange)
-                Text("無法載入學校配置")
+                    .foregroundStyle(.secondary)
+                Text("尚未選擇學校")
                     .font(.headline)
+                Button("選擇學校") {
+                    NotificationCenter.default.post(name: .showSchoolPicker, object: nil)
+                }
+                .buttonStyle(.borderedProminent)
             }
         }
     }

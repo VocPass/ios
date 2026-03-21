@@ -48,22 +48,6 @@ struct SchoolSelectionView: View {
         NavigationStack {
             VStack(spacing: 0) {
                 VStack(spacing: 12) {
-                    HStack {
-                        Spacer()
-                        if hasSelectedSchool {
-                            Button {
-                                dismiss()
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .font(.title2)
-                                    .symbolRenderingMode(.hierarchical)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                    .padding(.horizontal)
-                    .padding(.top, 8)
-
                     Image(systemName: "building.columns.fill")
                         .font(.system(size: 46))
                         .foregroundStyle(showBeta ? .orange : .blue)
@@ -170,7 +154,14 @@ struct SchoolSelectionView: View {
                 }
             }
             .background(Color(.systemGroupedBackground))
-            .navigationBarHidden(true)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("關閉", systemImage: "xmark") {
+                        dismiss()
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
         }
         .onAppear {
             if configManager.schools.isEmpty {
@@ -186,6 +177,7 @@ struct SchoolSelectionView: View {
         configManager.selectSchool(school)
         hasSelectedSchool = true
         onSchoolSelected?()
+        dismiss()
     }
 }
 
