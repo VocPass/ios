@@ -416,9 +416,11 @@ struct CourseSchedule: Identifiable, Codable {
     let id = UUID()
     let weekday: String           // 星期幾
     let period: String            // 第幾節
+    let start: String?            // 開始時間 "HH:mm"
+    let end: String?              // 結束時間 "HH:mm"
 
     enum CodingKeys: String, CodingKey {
-        case weekday, period
+        case weekday, period, start, end
     }
 
     private enum AlternateCodingKeys: String, CodingKey {
@@ -429,9 +431,11 @@ struct CourseSchedule: Identifiable, Codable {
         case classPeriod = "class_period"
     }
 
-    init(weekday: String, period: String) {
+    init(weekday: String, period: String, start: String? = nil, end: String? = nil) {
         self.weekday = weekday
         self.period = period
+        self.start = start
+        self.end = end
     }
 
     init(from decoder: Decoder) throws {
@@ -447,6 +451,8 @@ struct CourseSchedule: Identifiable, Codable {
             ?? (try? alt.decodeLossyString(forKey: .section))
             ?? (try? alt.decodeLossyString(forKey: .classPeriod))
             ?? ""
+        start = try? c.decode(String.self, forKey: .start)
+        end   = try? c.decode(String.self, forKey: .end)
     }
 }
 
@@ -1000,12 +1006,24 @@ struct TimetableData: Codable {
         entries = (try? c.decode([TimetableEntry].self, forKey: .entries))
             ?? (try? alt.decode([TimetableEntry].self, forKey: .timetable))
             ?? []
-        periodTimes = (try? c.decode([String: PeriodTime].self, forKey: .periodTimes))
+        var decodedPeriodTimes = (try? c.decode([String: PeriodTime].self, forKey: .periodTimes))
             ?? (try? alt.decode([String: PeriodTime].self, forKey: .periods))
             ?? [:]
         curriculum = (try? c.decode([String: CourseInfo].self, forKey: .curriculum))
             ?? (try? alt.decode([String: CourseInfo].self, forKey: .classes))
             ?? [:]
+
+        // 從課表 schedule 的 start/end 補充 periodTimes
+        for (_, courseInfo) in curriculum {
+            for schedule in courseInfo.schedule {
+                guard let start = schedule.start, let end = schedule.end,
+                      !start.isEmpty, !end.isEmpty,
+                      decodedPeriodTimes[schedule.period] == nil
+                else { continue }
+                decodedPeriodTimes[schedule.period] = PeriodTime(startTime: start, endTime: end)
+            }
+        }
+        periodTimes = decodedPeriodTimes
     }
 }
 

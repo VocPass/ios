@@ -28,6 +28,8 @@ class CacheService {
         case rememberCredentials = "remember_credentials"
         case autoStartDynamicIsland = "auto_start_dynamic_island"
         case autoStartMinutesBefore = "auto_start_minutes_before"
+        case manualCurriculum = "manual_curriculum"
+        case manualPeriodTimes = "manual_period_times"
         case savedCookies = "saved_cookies"
     }
 
@@ -44,6 +46,36 @@ class CacheService {
             return v == 0 ? 30 : v
         }
         set { userDefaults.set(newValue, forKey: CacheKey.autoStartMinutesBefore.rawValue) }
+    }
+
+    // MARK: - Manual Curriculum (key = "weekday|period")
+
+    var manualCurriculum: [String: String] {
+        get {
+            guard let data = userDefaults.data(forKey: CacheKey.manualCurriculum.rawValue),
+                  let dict = try? JSONDecoder().decode([String: String].self, from: data)
+            else { return [:] }
+            return dict
+        }
+        set {
+            if let data = try? JSONEncoder().encode(newValue) {
+                userDefaults.set(data, forKey: CacheKey.manualCurriculum.rawValue)
+            }
+        }
+    }
+
+    var manualPeriodTimes: [String: PeriodTime] {
+        get {
+            guard let data = userDefaults.data(forKey: CacheKey.manualPeriodTimes.rawValue),
+                  let dict = try? JSONDecoder().decode([String: PeriodTime].self, from: data)
+            else { return [:] }
+            return dict
+        }
+        set {
+            if let data = try? JSONEncoder().encode(newValue) {
+                userDefaults.set(data, forKey: CacheKey.manualPeriodTimes.rawValue)
+            }
+        }
     }
 
     // MARK: - Onboarding

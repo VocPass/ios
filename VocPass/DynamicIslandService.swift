@@ -259,6 +259,19 @@ final class DynamicIslandService: ObservableObject {
             return
         }
 
+        guard timetable != nil else {
+            lastErrorMessage = "尚未載入課表資料，請先前往校務 > 課表頁面載入。"
+            print("⚡ [DI] 無課表資料，無法啟動")
+            return
+        }
+
+        let slots = todaySlots()
+        guard !slots.isEmpty else {
+            lastErrorMessage = "今天沒有課程，無法啟動即時動態。"
+            print("⚡ [DI] 今日無課，無法啟動")
+            return
+        }
+
         for old in Activity<ClassScheduleActivityAttributes>.activities {
             await old.end(nil, dismissalPolicy: .immediate)
         }

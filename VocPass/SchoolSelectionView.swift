@@ -48,20 +48,36 @@ struct SchoolSelectionView: View {
         NavigationStack {
             VStack(spacing: 0) {
                 VStack(spacing: 12) {
+                    HStack {
+                        Spacer()
+                        if hasSelectedSchool {
+                            Button {
+                                dismiss()
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.title2)
+                                    .symbolRenderingMode(.hierarchical)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .padding(.horizontal)
+                    .padding(.top, 8)
+
                     Image(systemName: "building.columns.fill")
                         .font(.system(size: 46))
                         .foregroundStyle(showBeta ? .orange : .blue)
                         .onTapGesture { showBeta.toggle() }
-                    
+
                     Text("選擇學校")
                         .font(.title)
                         .fontWeight(.bold)
-                    
+
                     Text("請選擇您就讀的學校")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                 }
-                .padding(.vertical, 28)
+                .padding(.bottom, 28)
                 
                 if configManager.isLoading {
                     Spacer()
@@ -155,19 +171,6 @@ struct SchoolSelectionView: View {
             }
             .background(Color(.systemGroupedBackground))
             .navigationBarHidden(true)
-            .overlay(alignment: .topTrailing) {
-                if hasSelectedSchool {
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.title2)
-                            .symbolRenderingMode(.hierarchical)
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding()
-                }
-            }
         }
         .onAppear {
             if configManager.schools.isEmpty {
