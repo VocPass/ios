@@ -640,15 +640,18 @@ class APIService: ObservableObject {
     }
 
     // MARK: - 新增餐廳
-    func createRestaurant(school: String, name: String, lat: Double, lon: Double) async throws -> String {
+    func createRestaurant(school: String, name: String, lat: Double, lon: Double, address: String? = nil) async throws -> String {
         guard let url = URL(string: "\(AppConfig.vocPassAPIHost)/restaurant/") else {
             throw URLError(.badURL)
         }
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "school": school,
             "name": name,
             "map": ["lon": lon, "lat": lat]
         ]
+        if let address, !address.isEmpty {
+            body["address"] = address
+        }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -767,6 +770,77 @@ class APIService: ObservableObject {
         let (data, response) = try await urlSession.data(for: req)
         let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
         print("✏️ [API] updateEvaluation \(id) ← HTTP \(statusCode)")
+        guard (200...299).contains(statusCode) else {
+            let payload = extractAPIErrorPayload(from: data)
+            if let msg = payload?.message?.trimmingCharacters(in: .whitespacesAndNewlines), !msg.isEmpty {
+                throw APIError.serverMessage(msg)
+            }
+            throw APIError.httpStatus(statusCode)
+        }
+    }
+
+    // MARK: - 餐廳菜單
+    func fetchRestaurantMenu(id: String) async throws -> [RestaurantMenu] {
+        guard var components = URLComponents(string: "\(AppConfig.vocPassAPIHost)/restaurant/menu/\(id)") else {
+            throw URLError(.badURL)
+        }
+        components.queryItems = [URLQueryItem(name: "per_page", value: "50")]
+        guard let url = components.url else { throw URLError(.badURL) }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "GET"
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        let (data, response) = try await urlSession.data(for: req)
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            throw APIError.httpStatus((response as? HTTPURLResponse)?.statusCode ?? 0)
+        }
+        let result = try JSONDecoder().decode(RestaurantMenuListResponse.self, from: data)
+        return result.items
+    }
+
+    func createRestaurantMenu(restaurantID: String, imageData: Data, mimeType: String) async throws {
+        guard let url = URL(string: "\(AppConfig.vocPassAPIHost)/restaurant/menu/\(restaurantID)") else {
+            throw URLError(.badURL)
+        }
+        let boundary = UUID().uuidString
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        try VocPassAuthService.shared.applyAuth(to: &req)
+
+        var body = Data()
+        let ext = mimeType == "image/png" ? "png" : "jpg"
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"menu\"; filename=\"menu.\(ext)\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
+        body.append(imageData)
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        req.httpBody = body
+
+        print("🍱 [API] createRestaurantMenu → POST \(url) size=\(imageData.count)")
+        let (data, response) = try await urlSession.data(for: req)
+        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+        print("🍱 [API] createRestaurantMenu ← HTTP \(statusCode)")
+        guard (200...299).contains(statusCode) else {
+            let payload = extractAPIErrorPayload(from: data)
+            if let msg = payload?.message?.trimmingCharacters(in: .whitespacesAndNewlines), !msg.isEmpty {
+                throw APIError.serverMessage(msg)
+            }
+            throw APIError.httpStatus(statusCode)
+        }
+    }
+
+    func deleteRestaurantMenu(id: String) async throws {
+        guard let url = URL(string: "\(AppConfig.vocPassAPIHost)/restaurant/menu/\(id)") else {
+            throw URLError(.badURL)
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "DELETE"
+        try VocPassAuthService.shared.applyAuth(to: &req)
+        let (data, response) = try await urlSession.data(for: req)
+        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+        print("🗑️ [API] deleteRestaurantMenu \(id) ← HTTP \(statusCode)")
         guard (200...299).contains(statusCode) else {
             let payload = extractAPIErrorPayload(from: data)
             if let msg = payload?.message?.trimmingCharacters(in: .whitespacesAndNewlines), !msg.isEmpty {

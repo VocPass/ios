@@ -7,6 +7,7 @@ import SwiftUI
 import MapKit
 import CoreLocation
 import Combine
+import PhotosUI
 
 // MARK: - 定位管理
 final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
@@ -339,6 +340,14 @@ struct RestaurantDetailView: View {
     @State private var deletingEvaluation: RestaurantEvaluation?
     @State private var actionError: String?
 
+    // 菜單
+    @State private var menuItems: [RestaurantMenu] = []
+    @State private var isLoadingMenu = false
+    @State private var menuError: String?
+    @State private var showAddMenu = false
+    @State private var deletingMenu: RestaurantMenu?
+    @State private var viewingMenu: RestaurantMenu?
+
     var body: some View {
         List {
             // 頂部資訊 + 導航按鈕
@@ -370,6 +379,59 @@ struct RestaurantDetailView: View {
                     .buttonStyle(.borderedProminent)
                     .tint(.blue)
                     .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 8, trailing: 16))
+                }
+            }
+
+            // 菜單
+            Section {
+                if isLoadingMenu {
+                    HStack { Spacer(); ProgressView(); Spacer() }
+                        .listRowBackground(Color.clear)
+                } else if let error = menuError {
+                    Text(error).font(.subheadline).foregroundStyle(.secondary)
+                } else if menuItems.isEmpty {
+                    Text("目前尚無菜單圖片")
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.vertical, 8)
+                } else {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 100), spacing: 8)], spacing: 8) {
+                        ForEach(menuItems) { item in
+                            AsyncImage(url: item.menuURL) { phase in
+                                switch phase {
+                                case .success(let image):
+                                    image.resizable().scaledToFill()
+                                default:
+                                    Color(.systemGray5)
+                                        .overlay(ProgressView())
+                                }
+                            }
+                            .frame(width: 100, height: 100)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                            .onTapGesture { viewingMenu = item }
+                            .contextMenu {
+                                if item.user == VocPassAuthService.shared.currentUser?.id {
+                                    Button(role: .destructive) {
+                                        deletingMenu = item
+                                    } label: {
+                                        Label("刪除", systemImage: "trash")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .padding(.vertical, 4)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                }
+            } header: {
+                HStack {
+                    Text("菜單")
+                    Spacer()
+                    Button {
+                        showAddMenu = true
+                    } label: {
+                        Image(systemName: "plus")
+                    }
                 }
             }
 
@@ -422,6 +484,7 @@ struct RestaurantDetailView: View {
         }
         .task {
             await loadEvaluations()
+            await loadMenu()
         }
         .sheet(isPresented: $showAddEvaluation) {
             AddEvaluationSheet(restaurant: restaurant) {
@@ -435,6 +498,15 @@ struct RestaurantDetailView: View {
             }
             .environmentObject(apiService)
         }
+        .sheet(isPresented: $showAddMenu) {
+            AddMenuSheet(restaurantID: restaurant.id) {
+                Task { await loadMenu() }
+            }
+            .environmentObject(apiService)
+        }
+        .fullScreenCover(item: $viewingMenu) { item in
+            MenuImageViewer(url: item.menuURL)
+        }
         .confirmationDialog(
             "確定刪除這則評價？",
             isPresented: Binding(get: { deletingEvaluation != nil }, set: { if !$0 { deletingEvaluation = nil } }),
@@ -447,6 +519,19 @@ struct RestaurantDetailView: View {
                 }
             }
             Button("取消", role: .cancel) { deletingEvaluation = nil }
+        }
+        .confirmationDialog(
+            "確定刪除這張菜單圖片？",
+            isPresented: Binding(get: { deletingMenu != nil }, set: { if !$0 { deletingMenu = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("刪除", role: .destructive) {
+                if let item = deletingMenu {
+                    deletingMenu = nil
+                    Task { await confirmDeleteMenu(item) }
+                }
+            }
+            Button("取消", role: .cancel) { deletingMenu = nil }
         }
         .alert("操作失敗", isPresented: Binding(get: { actionError != nil }, set: { if !$0 { actionError = nil } })) {
             Button("確定", role: .cancel) { actionError = nil }
@@ -464,6 +549,15 @@ struct RestaurantDetailView: View {
         }
     }
 
+    private func confirmDeleteMenu(_ item: RestaurantMenu) async {
+        do {
+            try await apiService.deleteRestaurantMenu(id: item.id)
+            menuItems.removeAll { $0.id == item.id }
+        } catch {
+            actionError = error.localizedDescription
+        }
+    }
+
     private func loadEvaluations() async {
         isLoading = true
         errorMessage = nil
@@ -473,6 +567,17 @@ struct RestaurantDetailView: View {
             errorMessage = error.localizedDescription
         }
         isLoading = false
+    }
+
+    private func loadMenu() async {
+        isLoadingMenu = true
+        menuError = nil
+        do {
+            menuItems = try await apiService.fetchRestaurantMenu(id: restaurant.id)
+        } catch {
+            menuError = error.localizedDescription
+        }
+        isLoadingMenu = false
     }
 
     private func openMaps(lat: Double, lon: Double, name: String) {
@@ -529,7 +634,7 @@ struct RestaurantIcon: View {
     var body: some View {
         Group {
             if let url {
-                AsyncImage(url: url) { phase in
+                CachedAsyncImage(url: url) { phase in
                     switch phase {
                     case .success(let image):
                         image.resizable().scaledToFill()
@@ -922,14 +1027,23 @@ struct AddRestaurantSheet: View {
     @EnvironmentObject var apiService: APIService
     @Environment(\.dismiss) private var dismiss
 
-    enum Stage { case search, evaluate }
+    enum Stage { case search, mapPick, evaluate }
     @State private var stage: Stage = .search
+    @State private var pickedFromMap = false
 
     // Search
     @State private var searchText = ""
     @State private var searchResults: [MKMapItem] = []
     @State private var isSearching = false
     @State private var selectedMapItem: MKMapItem?
+
+    // Map pick — tap POI markers
+    @State private var mapCameraPosition: MapCameraPosition = .automatic
+    @State private var selectedFeature: MapFeature?
+    @State private var isLoadingFeature = false
+
+    // Shared restaurant info
+    @State private var restaurantAddress = ""
 
     // Evaluation
     @State private var evalTitle = ""
@@ -940,26 +1054,46 @@ struct AddRestaurantSheet: View {
     @State private var isSubmitting = false
     @State private var errorMessage: String?
 
+    private var navTitle: String {
+        switch stage {
+        case .search: return "搜尋餐廳"
+        case .mapPick: return "從地圖選擇"
+        case .evaluate: return "新增評價"
+        }
+    }
+
     var body: some View {
         NavigationStack {
             Group {
-                if stage == .search {
-                    searchStage
-                } else {
-                    evaluateStage
+                switch stage {
+                case .search: searchStage
+                case .mapPick: mapPickStage
+                case .evaluate: evaluateStage
                 }
             }
-            .navigationTitle(stage == .search ? "搜尋餐廳" : "新增評價")
+            .navigationTitle(navTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    if stage == .evaluate {
+                    switch stage {
+                    case .search:
+                        Button("取消") { dismiss() }
+                    case .mapPick:
                         Button("上一步") {
+                            selectedFeature = nil
                             stage = .search
+                        }
+                    case .evaluate:
+                        Button("上一步") {
+                            if pickedFromMap {
+                                selectedMapItem = nil
+                                selectedFeature = nil
+                                stage = .mapPick
+                            } else {
+                                stage = .search
+                            }
                             errorMessage = nil
                         }
-                    } else {
-                        Button("取消") { dismiss() }
                     }
                 }
             }
@@ -977,6 +1111,26 @@ struct AddRestaurantSheet: View {
     // MARK: - 搜尋頁
     private var searchStage: some View {
         List {
+            Section {
+                Button {
+                    if let loc = userLocation {
+                        mapCameraPosition = .region(MKCoordinateRegion(
+                            center: loc.coordinate,
+                            span: MKCoordinateSpan(latitudeDelta: 0.005, longitudeDelta: 0.005)
+                        ))
+                    } else {
+                        mapCameraPosition = .region(MKCoordinateRegion(
+                            center: CLLocationCoordinate2D(latitude: 23.5, longitude: 121.0),
+                            span: MKCoordinateSpan(latitudeDelta: 3.0, longitudeDelta: 3.0)
+                        ))
+                    }
+                    selectedFeature = nil
+                    stage = .mapPick
+                } label: {
+                    Label("從地圖選擇店家", systemImage: "map")
+                }
+            }
+
             if isSearching {
                 HStack { Spacer(); ProgressView(); Spacer() }
                     .listRowBackground(Color.clear)
@@ -989,6 +1143,8 @@ struct AddRestaurantSheet: View {
                 ForEach(searchResults, id: \.self) { item in
                     Button {
                         selectedMapItem = item
+                        restaurantAddress = item.placemark.title ?? ""
+                        pickedFromMap = false
                         evalTitle = ""
                         evalDescription = ""
                         evalScore = 3
@@ -1018,22 +1174,81 @@ struct AddRestaurantSheet: View {
         }
     }
 
+    // MARK: - 地圖選擇頁（點選 POI 標記）
+    private var mapPickStage: some View {
+        ZStack(alignment: .bottom) {
+            Map(position: $mapCameraPosition, selection: $selectedFeature) {
+                UserAnnotation()
+            }
+            .mapControls {
+                MapUserLocationButton()
+                MapCompass()
+                MapScaleView()
+            }
+            .ignoresSafeArea(edges: .bottom)
+
+            if let feature = selectedFeature {
+                // 已選擇 POI — 顯示確認卡
+                VStack(spacing: 12) {
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(feature.title ?? "未知店家")
+                                .font(.headline)
+                                .lineLimit(2)
+                        }
+                        Spacer()
+                        Button { selectedFeature = nil } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.title3)
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    Button {
+                        Task { await selectFeature(feature) }
+                    } label: {
+                        if isLoadingFeature {
+                            ProgressView().frame(maxWidth: .infinity)
+                        } else {
+                            Text("選擇此店家")
+                                .frame(maxWidth: .infinity)
+                                .fontWeight(.semibold)
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .disabled(isLoadingFeature)
+                }
+                .padding()
+                .background(.ultraThinMaterial)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            } else {
+                // 尚未選擇 — 顯示提示
+                Text("點選地圖上的店家標記來選擇餐廳")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .padding(.bottom, 40)
+                    .transition(.opacity)
+            }
+        }
+        .animation(.spring(duration: 0.3), value: selectedFeature == nil)
+    }
+
     // MARK: - 評價頁
     private var evaluateStage: some View {
         Form {
             Section("餐廳") {
                 if let item = selectedMapItem {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(item.name ?? "")
-                            .font(.headline)
-                        if let address = item.placemark.title {
-                            Text(address)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .padding(.vertical, 4)
+                    Text(item.name ?? "")
+                        .font(.headline)
+                        .padding(.vertical, 4)
                 }
+                TextField("地址", text: $restaurantAddress)
+                    .foregroundStyle(.secondary)
             }
 
             Section("評價") {
@@ -1050,15 +1265,10 @@ struct AddRestaurantSheet: View {
 
             Section {
                 Button {
-                    print("🔘 [UI] 送出餐廳+評價 tapped, evalTitle='\(evalTitle)' isSubmitting=\(isSubmitting)")
                     Task { await submit() }
                 } label: {
                     if isSubmitting {
-                        HStack {
-                            Spacer()
-                            ProgressView()
-                            Spacer()
-                        }
+                        HStack { Spacer(); ProgressView(); Spacer() }
                     } else {
                         Text("送出")
                             .frame(maxWidth: .infinity, alignment: .center)
@@ -1094,10 +1304,35 @@ struct AddRestaurantSheet: View {
         isSearching = false
     }
 
+    private func selectFeature(_ feature: MapFeature) async {
+        isLoadingFeature = true
+        let coord = feature.coordinate
+        let placemark = MKPlacemark(coordinate: coord)
+        let mapItem = MKMapItem(placemark: placemark)
+        mapItem.name = feature.title ?? ""
+
+        // 反向地理編碼取得地址
+        let geocoder = CLGeocoder()
+        let location = CLLocation(latitude: coord.latitude, longitude: coord.longitude)
+        if let pm = try? await geocoder.reverseGeocodeLocation(location).first {
+            restaurantAddress = [pm.thoroughfare, pm.subLocality, pm.locality, pm.administrativeArea]
+                .compactMap { $0 }.joined(separator: ", ")
+        } else {
+            restaurantAddress = ""
+        }
+
+        selectedMapItem = mapItem
+        pickedFromMap = true
+        evalTitle = ""
+        evalDescription = ""
+        evalScore = 3
+        errorMessage = nil
+        isLoadingFeature = false
+        stage = .evaluate
+    }
+
     private func submit() async {
         guard let item = selectedMapItem else { return }
-        let name = item.name ?? evalTitle
-        let coord = item.placemark.coordinate
         let title = evalTitle.trimmingCharacters(in: .whitespaces)
         let desc  = evalDescription.trimmingCharacters(in: .whitespaces)
         guard !title.isEmpty else { return }
@@ -1105,11 +1340,13 @@ struct AddRestaurantSheet: View {
         isSubmitting = true
         errorMessage = nil
         do {
+            let coord = item.placemark.coordinate
             let restaurantID = try await apiService.createRestaurant(
                 school: school,
-                name: name,
+                name: item.name ?? title,
                 lat: coord.latitude,
-                lon: coord.longitude
+                lon: coord.longitude,
+                address: restaurantAddress.trimmingCharacters(in: .whitespaces).isEmpty ? nil : restaurantAddress
             )
             try await apiService.createEvaluation(
                 restaurantID: restaurantID,
@@ -1121,6 +1358,184 @@ struct AddRestaurantSheet: View {
             dismiss()
         } catch {
             print("❌ [UI] createRestaurant/Evaluation failed: \(error)")
+            errorMessage = error.localizedDescription
+        }
+        isSubmitting = false
+    }
+}
+
+// MARK: - 菜單圖片全螢幕檢視
+struct MenuImageViewer: View {
+    let url: URL?
+    @Environment(\.dismiss) private var dismiss
+    @State private var scale: CGFloat = 1
+    @State private var offset: CGSize = .zero
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Color.black.ignoresSafeArea()
+
+            CachedAsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let image):
+                    image
+                        .resizable()
+                        .scaledToFit()
+                        .scaleEffect(scale)
+                        .offset(offset)
+                        .gesture(
+                            MagnificationGesture()
+                                .onChanged { value in scale = max(1, value) }
+                                .onEnded { _ in
+                                    if scale < 1 { withAnimation { scale = 1; offset = .zero } }
+                                }
+                                .simultaneously(with:
+                                    DragGesture()
+                                        .onChanged { value in
+                                            if scale > 1 { offset = value.translation }
+                                        }
+                                        .onEnded { _ in
+                                            if scale <= 1 { withAnimation { offset = .zero } }
+                                        }
+                                )
+                        )
+                        .onTapGesture(count: 2) {
+                            withAnimation {
+                                scale = scale > 1 ? 1 : 2.5
+                                offset = .zero
+                            }
+                        }
+                default:
+                    ProgressView().tint(.white)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.title)
+                    .foregroundStyle(.white.opacity(0.8))
+                    .padding()
+            }
+        }
+    }
+}
+
+// MARK: - 新增菜單 Sheet
+struct AddMenuSheet: View {
+    let restaurantID: String
+    let onAdded: () -> Void
+
+    @EnvironmentObject var apiService: APIService
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var selectedItem: PhotosPickerItem?
+    @State private var previewImage: Image?
+    @State private var imageData: Data?
+    @State private var mimeType = "image/jpeg"
+    @State private var isSubmitting = false
+    @State private var errorMessage: String?
+
+    private let maxBytes = 5 * 1024 * 1024   // 5 MB
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    PhotosPicker(selection: $selectedItem, matching: .images) {
+                        if let previewImage {
+                            previewImage
+                                .resizable()
+                                .scaledToFit()
+                                .frame(maxHeight: 200)
+                                .frame(maxWidth: .infinity)
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                        } else {
+                            Label("選擇圖片", systemImage: "photo")
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .padding(.vertical, 12)
+                        }
+                    }
+                    .onChange(of: selectedItem) { _, newItem in
+                        Task { await loadImage(from: newItem) }
+                    }
+                    if imageData != nil {
+                        Text("上限 5 MB")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if let error = errorMessage {
+                    Section {
+                        Text(error)
+                            .foregroundStyle(.red)
+                            .font(.subheadline)
+                    }
+                }
+
+                Section {
+                    Button {
+                        Task { await submit() }
+                    } label: {
+                        if isSubmitting {
+                            HStack {
+                                Spacer()
+                                ProgressView()
+                                Spacer()
+                            }
+                        } else {
+                            Text("上傳")
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .fontWeight(.semibold)
+                        }
+                    }
+                    .disabled(isSubmitting || imageData == nil)
+                }
+            }
+            .navigationTitle("新增菜單圖片")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private func loadImage(from item: PhotosPickerItem?) async {
+        guard let item else { return }
+        errorMessage = nil
+
+        // Try PNG first, fallback to JPEG
+        if let data = try? await item.loadTransferable(type: Data.self) {
+            // Detect PNG by magic bytes
+            let isPNG = data.prefix(4) == Data([0x89, 0x50, 0x4E, 0x47])
+            if data.count > maxBytes {
+                errorMessage = "圖片超過 5 MB，請選擇較小的圖片"
+                imageData = nil
+                previewImage = nil
+                return
+            }
+            imageData = data
+            mimeType = isPNG ? "image/png" : "image/jpeg"
+            if let uiImage = UIImage(data: data) {
+                previewImage = Image(uiImage: uiImage)
+            }
+        }
+    }
+
+    private func submit() async {
+        guard let data = imageData else { return }
+        isSubmitting = true
+        errorMessage = nil
+        do {
+            try await apiService.createRestaurantMenu(restaurantID: restaurantID, imageData: data, mimeType: mimeType)
+            onAdded()
+            dismiss()
+        } catch {
             errorMessage = error.localizedDescription
         }
         isSubmitting = false

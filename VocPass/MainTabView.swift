@@ -48,7 +48,7 @@ struct HomePageView: View {
                 if vocPassAuth.isLoggedIn, let user = vocPassAuth.currentUser {
                     // 頭像
                     if let avatarURL = user.avatarURL {
-                        AsyncImage(url: avatarURL) { phase in
+                        CachedAsyncImage(url: avatarURL) { phase in
                             switch phase {
                             case .success(let image):
                                 image
@@ -164,6 +164,7 @@ struct SettingsView: View {
     @EnvironmentObject var apiService: APIService
     @ObservedObject private var vocPassAuth = VocPassAuthService.shared
     @StateObject private var schoolConfigManager = SchoolConfigManager.shared
+    @State private var imageCacheSize: String = "計算中…"
 
     var body: some View {
         NavigationStack {
@@ -202,6 +203,24 @@ struct SettingsView: View {
                     }
                 }
 
+                Section("儲存空間") {
+                    HStack {
+                        Label("圖片快取", systemImage: "photo.stack")
+                        Spacer()
+                        Text(imageCacheSize)
+                            .foregroundColor(.secondary)
+                            .font(.subheadline)
+                    }
+                    Button(role: .destructive) {
+                        Task {
+                            await ImageCacheService.shared.clearCache()
+                            await refreshCacheSize()
+                        }
+                    } label: {
+                        Label("清除圖片快取", systemImage: "trash")
+                    }
+                }
+
                 Section("關於") {
                     HStack {
                         Text("版本")
@@ -233,7 +252,16 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("設定")
+            .task { await refreshCacheSize() }
         }
+    }
+
+    private func refreshCacheSize() async {
+        let bytes = await ImageCacheService.shared.cacheSize()
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useKB, .useMB]
+        formatter.countStyle = .file
+        imageCacheSize = formatter.string(fromByteCount: bytes)
     }
 }
 
@@ -248,7 +276,7 @@ struct VocPassAccountSettingsView: View {
                 Section {
                     HStack(spacing: 12) {
                         if let avatarURL = user.avatarURL {
-                            AsyncImage(url: avatarURL) { phase in
+                            CachedAsyncImage(url: avatarURL) { phase in
                                 switch phase {
                                 case .success(let image):
                                     image

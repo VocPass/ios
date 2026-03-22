@@ -1055,6 +1055,7 @@ struct Restaurant: Identifiable, Decodable {
     let icon: String
     let map: RestaurantMap?
     let user: String?
+    let address: String?
 
     var iconURL: URL? {
         guard !icon.isEmpty else { return nil }
@@ -1075,6 +1076,25 @@ struct RestaurantListResponse: Decodable {
         case items
         case totalItems = "total_items"
     }
+}
+
+// MARK: - 餐廳菜單
+struct RestaurantMenu: Identifiable, Decodable {
+    let id: String
+    let menu: String   // image URL
+    let restaurant: String
+    let user: String
+
+    var menuURL: URL? { URL(string: menu) }
+
+    enum CodingKeys: String, CodingKey {
+        case id, menu, restaurant
+        case user = "uesr"   // server typo
+    }
+}
+
+struct RestaurantMenuListResponse: Decodable {
+    let items: [RestaurantMenu]
 }
 
 struct SubjectAbsence: Identifiable, Codable {
