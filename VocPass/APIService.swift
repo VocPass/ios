@@ -714,7 +714,7 @@ class APIService: ObservableObject {
 
     // MARK: - 刪除餐廳
     func deleteRestaurant(id: String) async throws {
-        guard let url = URL(string: "\(AppConfig.vocPassAPIHost)/restaurant/\(id)/") else {
+        guard let url = URL(string: "\(AppConfig.vocPassAPIHost)/restaurant/\(id)") else {
             throw URLError(.badURL)
         }
         var req = URLRequest(url: url)
@@ -734,7 +734,7 @@ class APIService: ObservableObject {
 
     // MARK: - 刪除評價
     func deleteEvaluation(id: String) async throws {
-        guard let url = URL(string: "\(AppConfig.vocPassAPIHost)/restaurant/evaluate/\(id)/") else {
+        guard let url = URL(string: "\(AppConfig.vocPassAPIHost)/restaurant/evaluate/\(id)") else {
             throw URLError(.badURL)
         }
         var req = URLRequest(url: url)
@@ -754,7 +754,7 @@ class APIService: ObservableObject {
 
     // MARK: - 編輯評價
     func updateEvaluation(id: String, title: String, description: String, score: Int) async throws {
-        guard let url = URL(string: "\(AppConfig.vocPassAPIHost)/restaurant/evaluate/\(id)/") else {
+        guard let url = URL(string: "\(AppConfig.vocPassAPIHost)/restaurant/evaluate/\(id)") else {
             throw URLError(.badURL)
         }
         let body: [String: Any] = ["title": title, "description": description, "score": score]
