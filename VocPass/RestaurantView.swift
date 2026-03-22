@@ -82,6 +82,7 @@ struct RestaurantView: View {
     @State private var viewMode: ViewMode = .list
     @State private var deletingRestaurant: Restaurant?
     @State private var deleteError: String?
+    @State private var reportingContext: ReportContext?
 
     enum ViewMode { case list, map }
 
@@ -176,6 +177,10 @@ struct RestaurantView: View {
         } message: {
             Text(deleteError ?? "")
         }
+        .sheet(item: $reportingContext) { ctx in
+            ReportSheet(context: ctx)
+                .environmentObject(apiService)
+        }
     }
 
     @ViewBuilder
@@ -269,6 +274,13 @@ struct RestaurantView: View {
                                     } label: {
                                         Label("刪除", systemImage: "trash")
                                     }
+                                } else {
+                                    Button {
+                                        reportingContext = ReportContext(restaurantID: restaurant.id)
+                                    } label: {
+                                        Label("檢舉", systemImage: "flag")
+                                    }
+                                    .tint(.orange)
                                 }
                             }
                         }
@@ -305,6 +317,14 @@ struct RestaurantView: View {
     }
 }
 
+/// MARK: - 檢舉 Context
+struct ReportContext: Identifiable {
+    let id = UUID()
+    var restaurantID: String?
+    var restaurantEvaluateID: String?
+    var restaurantMenuID: String?
+}
+
 // MARK: - 餐廳列表 Row
 struct RestaurantRowView: View {
     let restaurant: Restaurant
@@ -338,6 +358,7 @@ struct RestaurantDetailView: View {
     @State private var showAddEvaluation = false
     @State private var editingEvaluation: RestaurantEvaluation?
     @State private var deletingEvaluation: RestaurantEvaluation?
+    @State private var reportingContext: ReportContext?
     @State private var actionError: String?
 
     // 菜單
@@ -442,6 +463,12 @@ struct RestaurantDetailView: View {
                                     } label: {
                                         Label("刪除", systemImage: "trash")
                                     }
+                                } else {
+                                    Button {
+                                        reportingContext = ReportContext(restaurantMenuID: item.id)
+                                    } label: {
+                                        Label("檢舉", systemImage: "flag")
+                                    }
                                 }
                             }
                         }
@@ -491,6 +518,13 @@ struct RestaurantDetailView: View {
                                         Label("編輯", systemImage: "pencil")
                                     }
                                     .tint(.blue)
+                                } else {
+                                    Button {
+                                        reportingContext = ReportContext(restaurantEvaluateID: ev.id)
+                                    } label: {
+                                        Label("檢舉", systemImage: "flag")
+                                    }
+                                    .tint(.orange)
                                 }
                             }
                     }
@@ -523,6 +557,10 @@ struct RestaurantDetailView: View {
                 Task { await loadEvaluations() }
             }
             .environmentObject(apiService)
+        }
+        .sheet(item: $reportingContext) { ctx in
+            ReportSheet(context: ctx)
+                .environmentObject(apiService)
         }
         .sheet(isPresented: $showAddMenu) {
             AddMenuSheet(restaurantID: restaurant.id) {
@@ -1622,5 +1660,85 @@ struct SchoolPickerSheet: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - 檢舉 Sheet
+struct ReportSheet: View {
+    let context: ReportContext
+    @EnvironmentObject var apiService: APIService
+    @Environment(\.dismiss) private var dismiss
+
+    private let reasons = ["不當內容", "垃圾內容", "錯誤資訊", "騷擾", "其他"]
+    @State private var reason = "不當內容"
+    @State private var description = ""
+    @State private var isSubmitting = false
+    @State private var errorMessage: String?
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("檢舉原因") {
+                    Picker("原因", selection: $reason) {
+                        ForEach(reasons, id: \.self) { Text($0) }
+                    }
+                    .pickerStyle(.inline)
+                    .labelsHidden()
+                }
+                Section("補充說明（選填）") {
+                    TextField("請輸入補充說明", text: $description, axis: .vertical)
+                        .lineLimit(3...6)
+                }
+                Section {
+                    Button {
+                        Task { await submit() }
+                    } label: {
+                        if isSubmitting {
+                            HStack { Spacer(); ProgressView(); Spacer() }
+                        } else {
+                            Text("送出檢舉")
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(.red)
+                        }
+                    }
+                    .disabled(isSubmitting)
+                }
+            }
+            .navigationTitle("檢舉")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+            }
+            .alert("送出失敗", isPresented: Binding(
+                get: { errorMessage != nil },
+                set: { if !$0 { errorMessage = nil } }
+            )) {
+                Button("確定", role: .cancel) { errorMessage = nil }
+            } message: {
+                Text(errorMessage ?? "")
+            }
+        }
+    }
+
+    private func submit() async {
+        isSubmitting = true
+        errorMessage = nil
+        do {
+            try await apiService.reportContent(
+                restaurantID: context.restaurantID,
+                restaurantEvaluateID: context.restaurantEvaluateID,
+                restaurantMenuID: context.restaurantMenuID,
+                reason: reason,
+                description: description.isEmpty ? nil : description
+            )
+            dismiss()
+        } catch {
+            print("❌ [UI] reportContent failed: \(error)")
+            errorMessage = error.localizedDescription
+        }
+        isSubmitting = false
     }
 }

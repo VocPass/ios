@@ -850,6 +850,35 @@ class APIService: ObservableObject {
         }
     }
 
+    // MARK: - 檢舉
+    func reportContent(restaurantID: String? = nil, restaurantEvaluateID: String? = nil, restaurantMenuID: String? = nil, reason: String, description: String?) async throws {
+        guard let url = URL(string: "\(AppConfig.vocPassAPIHost)/api/report") else {
+            throw URLError(.badURL)
+        }
+        var body: [String: Any] = ["reason": reason]
+        if let r = restaurantID { body["restaurant_id"] = r }
+        if let e = restaurantEvaluateID { body["restaurant_evaluate_id"] = e }
+        if let m = restaurantMenuID { body["restaurant_menu_id"] = m }
+        if let d = description, !d.trimmingCharacters(in: .whitespaces).isEmpty {
+            body["description"] = d.trimmingCharacters(in: .whitespaces)
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        try VocPassAuthService.shared.applyAuth(to: &req)
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (data, response) = try await urlSession.data(for: req)
+        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+        print("🚩 [API] reportContent ← HTTP \(statusCode)")
+        guard (200...299).contains(statusCode) else {
+            let payload = extractAPIErrorPayload(from: data)
+            if let msg = payload?.message?.trimmingCharacters(in: .whitespacesAndNewlines), !msg.isEmpty {
+                throw APIError.serverMessage(msg)
+            }
+            throw APIError.httpStatus(statusCode)
+        }
+    }
+
     // MARK: - 餐廳列表
     func fetchRestaurants(school: String) async throws -> [Restaurant] {
         guard var components = URLComponents(string: "\(AppConfig.vocPassAPIHost)/restaurant/") else {
