@@ -348,6 +348,11 @@ struct RestaurantDetailView: View {
     @State private var deletingMenu: RestaurantMenu?
     @State private var viewingMenu: RestaurantMenu?
 
+    private var averageScore: Double? {
+        guard !evaluations.isEmpty else { return nil }
+        return Double(evaluations.reduce(0) { $0 + $1.score }) / Double(evaluations.count)
+    }
+
     var body: some View {
         List {
             // 頂部資訊 + 導航按鈕
@@ -358,8 +363,29 @@ struct RestaurantDetailView: View {
                         Text(restaurant.name)
                             .font(.title3)
                             .fontWeight(.semibold)
-                        if let map = restaurant.map {
-                            Text(String(format: "%.6f, %.6f", map.lat, map.lon))
+                        if let address = restaurant.address, !address.isEmpty {
+                            Text(address)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else if let map = restaurant.map {
+                            Text(String(format: "%.5f, %.5f", map.lat, map.lon))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        if let avg = averageScore {
+                            HStack(spacing: 4) {
+                                Image(systemName: "star.fill")
+                                    .foregroundStyle(.yellow)
+                                    .font(.caption)
+                                Text(String(format: "%.1f", avg))
+                                    .font(.caption)
+                                    .fontWeight(.medium)
+                                Text("(\(evaluations.count) 則評價)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        } else if !isLoading {
+                            Text("暫無評價")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -397,7 +423,7 @@ struct RestaurantDetailView: View {
                 } else {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 100), spacing: 8)], spacing: 8) {
                         ForEach(menuItems) { item in
-                            AsyncImage(url: item.menuURL) { phase in
+                            CachedAsyncImage(url: item.menuURL) { phase in
                                 switch phase {
                                 case .success(let image):
                                     image.resizable().scaledToFill()
