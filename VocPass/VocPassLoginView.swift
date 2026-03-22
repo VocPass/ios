@@ -7,6 +7,7 @@ import SwiftUI
 import Combine
 import AuthenticationServices
 
+// 保留供其他地方使用
 struct VocPassLoginSheet: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var vm = VocPassLoginViewModel()

@@ -154,133 +154,44 @@ struct SchoolAffairsView: View {
 // MARK: - 設定頁面
 struct SettingsView: View {
     @EnvironmentObject var apiService: APIService
-    @StateObject private var dynamicIsland = DynamicIslandService.shared
-    @State private var showCookies = false
-    @State private var autoStart = CacheService.shared.autoStartDynamicIsland
-    @State private var minutesBefore = CacheService.shared.autoStartMinutesBefore
-    @State private var weeksPerSemester = CacheService.shared.weeksPerSemester
+    @ObservedObject private var vocPassAuth = VocPassAuthService.shared
+    @StateObject private var schoolConfigManager = SchoolConfigManager.shared
 
     var body: some View {
         NavigationStack {
             List {
-                Section("帳號") {
-                    if let school = SchoolConfigManager.shared.selectedSchool {
+                Section {
+                    NavigationLink(destination: VocPassAccountSettingsView()) {
                         HStack {
-                            Image(systemName: "building.columns")
-                            Text("目前學校")
+                            Label("VocPass 帳號", systemImage: "person.circle")
                             Spacer()
-                            Text(school.name)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-
-                    Button {
-                        NotificationCenter.default.post(name: .showSchoolPicker, object: nil)
-                    } label: {
-                        HStack {
-                            Image(systemName: "arrow.left.arrow.right")
-                            Text("切換學校")
-                        }
-                    }
-
-                    if apiService.isLoggedIn {
-                        Button(role: .destructive) {
-                            apiService.logout()
-                        } label: {
-                            HStack {
-                                Image(systemName: "rectangle.portrait.and.arrow.right")
-                                Text("登出")
+                            if vocPassAuth.isLoggedIn, let user = vocPassAuth.currentUser {
+                                Text(user.displayName)
+                                    .foregroundColor(.secondary)
+                                    .font(.subheadline)
+                            } else {
+                                Text("未登入")
+                                    .foregroundColor(.secondary)
+                                    .font(.subheadline)
                             }
                         }
                     }
-                }
 
-                // MARK: 即時動態設定
-                Section {
-                    HStack {
-                        Image(systemName: dynamicIsland.isActivityRunning
-                              ? "record.circle.fill" : "record.circle")
-                            .foregroundStyle(dynamicIsland.isActivityRunning ? .red : .secondary)
-                        Text("即時動態狀態")
-                        Spacer()
-                        Text(dynamicIsland.isActivityRunning ? "進行中" : "未啟動")
-                            .foregroundStyle(dynamicIsland.isActivityRunning ? .red : .secondary)
-                            .font(.caption)
-                    }
-
-                    Button {
-                        if dynamicIsland.isActivityRunning {
-                            dynamicIsland.endActivity()
-                        } else {
-                            Task { await dynamicIsland.startActivity() }
-                        }
-                    } label: {
-                        Label(
-                            dynamicIsland.isActivityRunning ? "手動停止" : "手動啟動",
-                            systemImage: dynamicIsland.isActivityRunning ? "stop.fill" : "play.fill"
-                        )
-                        .foregroundStyle(dynamicIsland.isActivityRunning ? .red : .blue)
-                    }
-
-                    Toggle(isOn: $autoStart) {
-                        Label("上課前自動顯示", systemImage: "clock.badge.checkmark")
-                    }
-                    .onChange(of: autoStart) { _, newValue in
-                        CacheService.shared.autoStartDynamicIsland = newValue
-                        if newValue {
-                            dynamicIsland.scheduleAutoStart()
-                        } else {
-                            dynamicIsland.cancelAutoStart()
-                        }
-                    }
-
-                    if autoStart {
-                        Stepper(value: $minutesBefore, in: 5...60, step: 5) {
-                            HStack {
-                                Label("提前啟動時間", systemImage: "timer")
-                                Spacer()
-                                Text("\(minutesBefore) 分鐘前")
-                                    .foregroundStyle(.secondary)
+                    NavigationLink(destination: SchoolSettingsView().environmentObject(apiService)) {
+                        HStack {
+                            Label("學校設定", systemImage: "building.columns")
+                            Spacer()
+                            if let school = schoolConfigManager.selectedSchool {
+                                Text(school.name)
+                                    .foregroundColor(.secondary)
+                                    .font(.subheadline)
+                            } else {
+                                Text("未選擇")
+                                    .foregroundColor(.secondary)
+                                    .font(.subheadline)
                             }
                         }
-                        .onChange(of: minutesBefore) { _, newValue in
-                            CacheService.shared.autoStartMinutesBefore = newValue
-                            dynamicIsland.scheduleAutoStart()
-                        }
                     }
-
-                } header: {
-                    Text("即時動態 / 動態島")
-                } footer: {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("開啟後，每天第一節課前 \(minutesBefore) 分鐘自動顯示動態島課表；放學後自動結束。")
-                            .font(.caption)
-
-                        if let err = dynamicIsland.lastErrorMessage, !err.isEmpty {
-                            Text("啟動失敗：\(err)")
-                                .font(.caption2)
-                                .foregroundStyle(.red)
-                        }
-                    }
-                }
-
-                Section {
-                    Stepper(value: $weeksPerSemester, in: 10...25) {
-                        HStack {
-                            Label("每學期週數", systemImage: "calendar")
-                            Spacer()
-                            Text("\(weeksPerSemester) 週")
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .onChange(of: weeksPerSemester) { _, newValue in
-                        CacheService.shared.weeksPerSemester = newValue
-                    }
-                } header: {
-                    Text("缺曠統計")
-                } footer: {
-                    Text("用於計算各科缺曠百分比，預設 18 週。")
-                        .font(.caption)
                 }
 
                 Section("關於") {
@@ -312,37 +223,259 @@ struct SettingsView: View {
                         }
                     }
                 }
-
-                Section {
-                    DisclosureGroup("Cookies", isExpanded: $showCookies) {
-                        if apiService.cookies.isEmpty {
-                            Text("尚無 Cookies")
-                                .foregroundColor(.secondary)
-                        } else {
-                            ForEach(apiService.cookies, id: \.name) { cookie in
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(cookie.name)
-                                        .font(.caption)
-                                        .fontWeight(.semibold)
-                                    Text(cookie.value)
-                                        .font(.caption2)
-                                        .foregroundColor(.secondary)
-                                        .lineLimit(1)
-                                }
-                            }
-
-                            Button("複製全部 Cookies") {
-                                let cookieString = apiService.cookies.map { "\($0.name)=\($0.value)" }.joined(separator: "; ")
-                                UIPasteboard.general.string = cookieString
-                            }
-                        }
-                    }
-                } header: {
-                    Text("開發者")
-                }
             }
             .navigationTitle("設定")
         }
+    }
+}
+
+// MARK: - VocPass 帳號設定
+struct VocPassAccountSettingsView: View {
+    @ObservedObject private var vocPassAuth = VocPassAuthService.shared
+    @StateObject private var loginVM = VocPassLoginViewModel()
+
+    var body: some View {
+        List {
+            if vocPassAuth.isLoggedIn, let user = vocPassAuth.currentUser {
+                Section {
+                    HStack(spacing: 12) {
+                        if let avatarURL = user.avatarURL {
+                            AsyncImage(url: avatarURL) { phase in
+                                switch phase {
+                                case .success(let image):
+                                    image
+                                        .resizable()
+                                        .scaledToFill()
+                                        .frame(width: 52, height: 52)
+                                        .clipShape(Circle())
+                                default:
+                                    Image(systemName: "person.circle.fill")
+                                        .font(.system(size: 52))
+                                        .foregroundStyle(.blue)
+                                }
+                            }
+                        } else {
+                            Image(systemName: "person.circle.fill")
+                                .font(.system(size: 52))
+                                .foregroundStyle(.blue)
+                        }
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(user.displayName)
+                                .font(.headline)
+                            Text("@\(user.username)")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                            Text(user.email)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+
+                Section {
+                    Button(role: .destructive) {
+                        vocPassAuth.logout()
+                    } label: {
+                        HStack {
+                            Image(systemName: "rectangle.portrait.and.arrow.right")
+                            Text("登出 VocPass")
+                        }
+                    }
+                }
+            } else {
+                Section {
+                    VStack(spacing: 12) {
+                        Image(systemName: "person.circle")
+                            .font(.system(size: 50))
+                            .foregroundStyle(.secondary)
+                        Text("尚未登入 VocPass")
+                            .font(.headline)
+                        Text("登入後可使用更多功能")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                }
+
+                Section {
+                    Button {
+                        loginVM.startLogin()
+                    } label: {
+                        HStack {
+                            Image(systemName: "person.badge.plus")
+                            Text("登入 VocPass 帳號")
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle("VocPass 帳號")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+// MARK: - 學校設定
+struct SchoolSettingsView: View {
+    @EnvironmentObject var apiService: APIService
+    @StateObject private var dynamicIsland = DynamicIslandService.shared
+    @StateObject private var schoolConfigManager = SchoolConfigManager.shared
+    @State private var showCookies = false
+    @State private var autoStart = CacheService.shared.autoStartDynamicIsland
+    @State private var minutesBefore = CacheService.shared.autoStartMinutesBefore
+    @State private var weeksPerSemester = CacheService.shared.weeksPerSemester
+
+    var body: some View {
+        List {
+            Section("帳號") {
+                if let school = schoolConfigManager.selectedSchool {
+                    HStack {
+                        Image(systemName: "building.columns")
+                        Text("目前學校")
+                        Spacer()
+                        Text(school.name)
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                Button {
+                    NotificationCenter.default.post(name: .showSchoolPicker, object: nil)
+                } label: {
+                    HStack {
+                        Image(systemName: "arrow.left.arrow.right")
+                        Text("切換學校")
+                    }
+                }
+
+                if apiService.isLoggedIn {
+                    Button(role: .destructive) {
+                        apiService.logout()
+                    } label: {
+                        HStack {
+                            Image(systemName: "rectangle.portrait.and.arrow.right")
+                            Text("登出學校帳號")
+                        }
+                    }
+                }
+            }
+
+            Section {
+                HStack {
+                    Image(systemName: dynamicIsland.isActivityRunning
+                          ? "record.circle.fill" : "record.circle")
+                        .foregroundStyle(dynamicIsland.isActivityRunning ? .red : .secondary)
+                    Text("即時動態狀態")
+                    Spacer()
+                    Text(dynamicIsland.isActivityRunning ? "進行中" : "未啟動")
+                        .foregroundStyle(dynamicIsland.isActivityRunning ? .red : .secondary)
+                        .font(.caption)
+                }
+
+                Button {
+                    if dynamicIsland.isActivityRunning {
+                        dynamicIsland.endActivity()
+                    } else {
+                        Task { await dynamicIsland.startActivity() }
+                    }
+                } label: {
+                    Label(
+                        dynamicIsland.isActivityRunning ? "手動停止" : "手動啟動",
+                        systemImage: dynamicIsland.isActivityRunning ? "stop.fill" : "play.fill"
+                    )
+                    .foregroundStyle(dynamicIsland.isActivityRunning ? .red : .blue)
+                }
+
+                Toggle(isOn: $autoStart) {
+                    Label("上課前自動顯示", systemImage: "clock.badge.checkmark")
+                }
+                .onChange(of: autoStart) { _, newValue in
+                    CacheService.shared.autoStartDynamicIsland = newValue
+                    if newValue {
+                        dynamicIsland.scheduleAutoStart()
+                    } else {
+                        dynamicIsland.cancelAutoStart()
+                    }
+                }
+
+                if autoStart {
+                    Stepper(value: $minutesBefore, in: 5...60, step: 5) {
+                        HStack {
+                            Label("提前啟動時間", systemImage: "timer")
+                            Spacer()
+                            Text("\(minutesBefore) 分鐘前")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .onChange(of: minutesBefore) { _, newValue in
+                        CacheService.shared.autoStartMinutesBefore = newValue
+                        dynamicIsland.scheduleAutoStart()
+                    }
+                }
+            } header: {
+                Text("即時動態 / 動態島")
+            } footer: {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("開啟後，每天第一節課前 \(minutesBefore) 分鐘自動顯示動態島課表；放學後自動結束。")
+                        .font(.caption)
+
+                    if let err = dynamicIsland.lastErrorMessage, !err.isEmpty {
+                        Text("啟動失敗：\(err)")
+                            .font(.caption2)
+                            .foregroundStyle(.red)
+                    }
+                }
+            }
+
+            Section {
+                Stepper(value: $weeksPerSemester, in: 10...25) {
+                    HStack {
+                        Label("每學期週數", systemImage: "calendar")
+                        Spacer()
+                        Text("\(weeksPerSemester) 週")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .onChange(of: weeksPerSemester) { _, newValue in
+                    CacheService.shared.weeksPerSemester = newValue
+                }
+            } header: {
+                Text("缺曠統計")
+            } footer: {
+                Text("用於計算各科缺曠百分比，預設 18 週。")
+                    .font(.caption)
+            }
+
+            Section {
+                DisclosureGroup("Cookies", isExpanded: $showCookies) {
+                    if apiService.cookies.isEmpty {
+                        Text("尚無 Cookies")
+                            .foregroundColor(.secondary)
+                    } else {
+                        ForEach(apiService.cookies, id: \.name) { cookie in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(cookie.name)
+                                    .font(.caption)
+                                    .fontWeight(.semibold)
+                                Text(cookie.value)
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
+                            }
+                        }
+
+                        Button("複製全部 Cookies") {
+                            let cookieString = apiService.cookies.map { "\($0.name)=\($0.value)" }.joined(separator: "; ")
+                            UIPasteboard.general.string = cookieString
+                        }
+                    }
+                }
+            } header: {
+                Text("開發者")
+            }
+        }
+        .navigationTitle("學校設定")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
