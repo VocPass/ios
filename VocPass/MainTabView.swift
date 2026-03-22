@@ -93,9 +93,17 @@ struct HomePageView: View {
                     .buttonStyle(.borderedProminent)
                 }
 
-                Text("這裡正在籌備新功能，敬請期待！")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                NavigationLink(destination: RestaurantView()) {
+                    Label("吃啥？", systemImage: "fork.knife")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.orange.opacity(0.15))
+                        .foregroundStyle(Color.orange)
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 32)
 
                 Spacer()
             }

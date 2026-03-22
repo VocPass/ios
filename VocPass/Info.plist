@@ -33,6 +33,8 @@
 	<array>
 		<string>fetch</string>
 	</array>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>顯示附近餐廳距離並在地圖上排序</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 </dict>

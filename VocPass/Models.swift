@@ -1027,7 +1027,56 @@ struct TimetableData: Codable {
     }
 }
 
+// MARK: - 餐廳評價
+struct RestaurantEvaluation: Identifiable, Decodable {
+    let id: String
+    let title: String
+    let description: String
+    let score: Int
+    let user: String
+
+    var plainDescription: String {
+        description
+            .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+struct RestaurantEvaluationListResponse: Decodable {
+    let items: [RestaurantEvaluation]
+}
+
 // MARK: - 科目缺曠統計
+// MARK: - 餐廳
+struct Restaurant: Identifiable, Decodable {
+    let id: String
+    let name: String
+    let school: String
+    let icon: String
+    let map: RestaurantMap?
+    let user: String?
+
+    var iconURL: URL? {
+        guard !icon.isEmpty else { return nil }
+        return URL(string: icon)
+    }
+}
+
+struct RestaurantMap: Decodable {
+    let lon: Double
+    let lat: Double
+}
+
+struct RestaurantListResponse: Decodable {
+    let items: [Restaurant]
+    let totalItems: Int
+
+    enum CodingKeys: String, CodingKey {
+        case items
+        case totalItems = "total_items"
+    }
+}
+
 struct SubjectAbsence: Identifiable, Codable {
     let id = UUID()
     let subject: String

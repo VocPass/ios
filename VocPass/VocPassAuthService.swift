@@ -114,6 +114,14 @@ class VocPassAuthService: ObservableObject {
         return try JSONDecoder().decode(VocPassUser.self, from: data)
     }
 
+    // MARK: - 為 URLRequest 附加 Bearer token
+    func applyAuth(to request: inout URLRequest) throws {
+        guard let token = authToken, !token.isEmpty else {
+            throw APIError.serverMessage("請先登入 VocPass 帳號才能送出評價")
+        }
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    }
+
     // MARK: - 登出
 
     func logout() {
