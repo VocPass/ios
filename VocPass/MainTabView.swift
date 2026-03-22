@@ -37,38 +37,72 @@ struct MainTabView: View {
 // MARK: - 首頁
 struct HomePageView: View {
     @EnvironmentObject var apiService: APIService
+    @ObservedObject private var vocPassAuth = VocPassAuthService.shared
+    @State private var showVocPassLogin = false
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 24) {
                 Spacer()
 
-                Image(systemName: "graduationcap.fill")
-                    .font(.system(size: 64))
-                    .foregroundStyle(.blue)
+                if vocPassAuth.isLoggedIn, let user = vocPassAuth.currentUser {
+                    // 頭像
+                    if let avatarURL = user.avatarURL {
+                        AsyncImage(url: avatarURL) { phase in
+                            switch phase {
+                            case .success(let image):
+                                image
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: 80, height: 80)
+                                    .clipShape(Circle())
+                            default:
+                                Image(systemName: "person.circle.fill")
+                                    .font(.system(size: 80))
+                                    .foregroundStyle(.blue)
+                            }
+                        }
+                    } else {
+                        Image(systemName: "person.circle.fill")
+                            .font(.system(size: 80))
+                            .foregroundStyle(.blue)
+                    }
 
-                Text("VocPass")
-                    .font(.largeTitle)
-                    .fontWeight(.bold)
-
-                if apiService.isLoggedIn {
-                    if let school = SchoolConfigManager.shared.selectedSchool {
-                        Text(school.name)
+                    VStack(spacing: 4) {
+                        Text(user.displayName)
+                            .font(.title2)
+                            .fontWeight(.semibold)
+                        Text("@\(user.username)")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
-                    Label("已登入", systemImage: "checkmark.circle.fill")
-                        .font(.subheadline)
-                        .foregroundStyle(.green)
                 } else {
-                    Text("這裡正在籌備新功能，先去校務頁面登入吧！")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                    Image(systemName: "graduationcap.fill")
+                        .font(.system(size: 64))
+                        .foregroundStyle(.blue)
+
+                    Text("VocPass")
+                        .font(.largeTitle)
+                        .fontWeight(.bold)
+
+                    Button {
+                        showVocPassLogin = true
+                    } label: {
+                        Label("登入 VocPass 帳號", systemImage: "person.badge.plus")
+                    }
+                    .buttonStyle(.borderedProminent)
                 }
+
+                Text("這裡正在籌備新功能，敬請期待！")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
 
                 Spacer()
             }
             .navigationTitle("首頁")
+            .sheet(isPresented: $showVocPassLogin) {
+                VocPassLoginSheet()
+            }
         }
     }
 }

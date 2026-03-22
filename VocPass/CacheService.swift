@@ -35,6 +35,7 @@ class CacheService {
         case manualCurriculum = "manual_curriculum"
         case manualPeriodTimes = "manual_period_times"
         case savedCookies = "saved_cookies"
+        case vocPassCookies = "vocpass_auth_cookies"
         case weeksPerSemester = "weeks_per_semester"
     }
 
@@ -162,6 +163,30 @@ class CacheService {
     func clearCookies() {
         userDefaults.removeObject(forKey: CacheKey.savedCookies.rawValue)
         print("🍪 [Cache] 已清除 cookies")
+    }
+
+    // MARK: - VocPass Auth Cookies
+    func saveVocPassCookies(_ cookies: [HTTPCookie]) {
+        let props = cookies.compactMap { $0.properties }
+        if let data = try? NSKeyedArchiver.archivedData(withRootObject: props, requiringSecureCoding: false) {
+            userDefaults.set(data, forKey: CacheKey.vocPassCookies.rawValue)
+            print("🍪 [Cache] 已儲存 \(cookies.count) 個 VocPass cookies")
+        }
+    }
+
+    func loadVocPassCookies() -> [HTTPCookie] {
+        guard let data = userDefaults.data(forKey: CacheKey.vocPassCookies.rawValue),
+              let props = try? NSKeyedUnarchiver.unarchiveTopLevelObjectWithData(data) as? [[HTTPCookiePropertyKey: Any]] else {
+            return []
+        }
+        let cookies = props.compactMap { HTTPCookie(properties: $0) }
+        print("🍪 [Cache] 載入 \(cookies.count) 個 VocPass cookies")
+        return cookies
+    }
+
+    func clearVocPassCookies() {
+        userDefaults.removeObject(forKey: CacheKey.vocPassCookies.rawValue)
+        print("🍪 [Cache] 已清除 VocPass cookies")
     }
 
     // MARK: - Curriculum Cache

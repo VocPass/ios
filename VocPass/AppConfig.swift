@@ -16,4 +16,12 @@ enum AppConfig {
         return "https://vocpass.com"
         #endif
     }
+
+    static var vocPassAuthHost: String {
+        #if DEBUG
+        return "https://dev.vocpass.com"
+        #else
+        return "https://vocpass.com"
+        #endif
+    }
 }

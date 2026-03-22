@@ -42,6 +42,7 @@ struct ContentView: View {
                 schoolConfigManager.loadSchools()
             }
             Task {
+                await VocPassAuthService.shared.restoreSession()
                 if hasSeenOnboarding && hasSelectedSchool {
                     await apiService.pingAndRestoreSession()
                     CacheService.shared.syncTimetableToWidget()
