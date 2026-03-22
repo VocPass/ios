@@ -124,6 +124,7 @@ struct SettingsView: View {
     @State private var showCookies = false
     @State private var autoStart = CacheService.shared.autoStartDynamicIsland
     @State private var minutesBefore = CacheService.shared.autoStartMinutesBefore
+    @State private var weeksPerSemester = CacheService.shared.weeksPerSemester
 
     var body: some View {
         NavigationStack {
@@ -227,6 +228,25 @@ struct SettingsView: View {
                                 .foregroundStyle(.red)
                         }
                     }
+                }
+
+                Section {
+                    Stepper(value: $weeksPerSemester, in: 10...25) {
+                        HStack {
+                            Label("每學期週數", systemImage: "calendar")
+                            Spacer()
+                            Text("\(weeksPerSemester) 週")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .onChange(of: weeksPerSemester) { _, newValue in
+                        CacheService.shared.weeksPerSemester = newValue
+                    }
+                } header: {
+                    Text("缺曠統計")
+                } footer: {
+                    Text("用於計算各科缺曠百分比，預設 18 週。")
+                        .font(.caption)
                 }
 
                 Section("關於") {

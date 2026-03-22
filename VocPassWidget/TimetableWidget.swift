@@ -12,7 +12,6 @@ import WidgetKit
 private let kAppGroupID = "group.com.08hans.VocPass"
 
 // MARK: - Widget-local Model Types
-// 與主 app 的 JSON 格式相容的簡化版資料型別，避免跨 target 相依。
 
 private struct WPeriodTime: Codable {
     let startTime: String
@@ -197,7 +196,6 @@ private func displaySlots(at now: Date, allSlots: [ScheduleSlot]) -> [ScheduleSl
     return Array(allSlots.filter { $0.startTime > now }.prefix(4))
 }
 
-/// 從 `from` 開始往後最多查 7 天，找到有課的那天，回傳 (slots, 那天的 Date)
 private func nextAvailableSlots(
     from date: Date,
     timetable: WTimetableData,
@@ -314,7 +312,7 @@ struct TimetableWidgetEntryView: View {
         }
     }
 
-    // MARK: Small widget – 只顯示目前這節（或下一節）
+    // MARK: Small widge
 
     private var smallView: some View {
         let current = entry.slots.first(where: { $0.isCurrent })

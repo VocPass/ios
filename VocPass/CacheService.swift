@@ -35,6 +35,17 @@ class CacheService {
         case manualCurriculum = "manual_curriculum"
         case manualPeriodTimes = "manual_period_times"
         case savedCookies = "saved_cookies"
+        case weeksPerSemester = "weeks_per_semester"
+    }
+
+    // MARK: - 學期週數設定
+
+    var weeksPerSemester: Int {
+        get {
+            let v = userDefaults.integer(forKey: CacheKey.weeksPerSemester.rawValue)
+            return v == 0 ? 18 : v
+        }
+        set { userDefaults.set(newValue, forKey: CacheKey.weeksPerSemester.rawValue) }
     }
 
     // MARK: - Dynamic Island Settings

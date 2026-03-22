@@ -12,10 +12,17 @@ import WebKit
 class APIService: ObservableObject {
     static let shared = APIService()
 
-    private let weeksPerSemester = 18
+    private var weeksPerSemester: Int { CacheService.shared.weeksPerSemester }
 
     @Published var cookies: [HTTPCookie] = []
     @Published var isLoggedIn = false
+
+    private let urlSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.httpShouldSetCookies = false
+        config.httpCookieAcceptPolicy = .never
+        return URLSession(configuration: config)
+    }()
 
     private struct APIErrorPayload: Decodable {
         let errorID: String?
@@ -58,7 +65,13 @@ class APIService: ObservableObject {
     }
 
     private var cookieString: String {
-        cookies.map { "\($0.name)=\($0.value)" }.joined(separator: "; ")
+        // Cookie header 只能是 ASCII；非 ASCII 值（如中文）需 percent-encode，
+        // 否則伺服器解析到非 ASCII 字元時會截斷，導致後續 session cookies 遺失。
+        let allowed = CharacterSet.urlQueryAllowed.subtracting(CharacterSet(charactersIn: ";, "))
+        return cookies.map { cookie in
+            let encodedValue = cookie.value.addingPercentEncoding(withAllowedCharacters: allowed) ?? cookie.value
+            return "\(cookie.name)=\(encodedValue)"
+        }.joined(separator: "; ")
     }
 
     private var headers: [String: String] {
@@ -109,7 +122,7 @@ class APIService: ObservableObject {
         req.setValue(cookieString, forHTTPHeaderField: "Cookie")
         req.setValue("application/json", forHTTPHeaderField: "Accept")
 
-        let (data, response) = try await URLSession.shared.data(for: req)
+        let (data, response) = try await urlSession.data(for: req)
         guard let httpResponse = response as? HTTPURLResponse else {
             throw URLError(.badServerResponse)
         }
@@ -232,7 +245,7 @@ class APIService: ObservableObject {
             req.setValue(value, forHTTPHeaderField: key)
         }
 
-        let (data, response) = try await URLSession.shared.data(for: req)
+        let (data, response) = try await urlSession.data(for: req)
 
         guard let httpResponse = response as? HTTPURLResponse else {
             print("❌ [API] No HTTP response")
@@ -448,13 +461,15 @@ class APIService: ObservableObject {
         let attendanceResult = try await attendanceTask
         let curriculum = try? await curriculumTask
 
+        let manualCurriculum = CacheService.shared.manualCurriculum
         let subjectAbsences: [SubjectAbsence]
         if let curriculum {
             subjectAbsences = calculateSubjectAbsences(
                 curriculum: curriculum,
                 absenceRecords: attendanceResult.records,
                 weeksPerSemester: weeksPerSemester,
-                currentSemester: attendanceResult.semesterInfo?.semester
+                currentSemester: attendanceResult.semesterInfo?.semester,
+                manualCurriculum: manualCurriculum
             )
         } else {
             subjectAbsences = []
@@ -467,13 +482,27 @@ class APIService: ObservableObject {
     private func calculateSubjectAbsences(curriculum: [String: CourseInfo],
                                            absenceRecords: [AbsenceRecord],
                                            weeksPerSemester: Int,
-                                           currentSemester: String? = nil) -> [SubjectAbsence] {
+                                           currentSemester: String? = nil,
+                                           manualCurriculum: [String: String] = [:]) -> [SubjectAbsence] {
         var courseMapping: [String: String] = [:]
         for (courseName, info) in curriculum {
             for schedule in info.schedule {
                 let key = "\(schedule.weekday)-\(schedule.period)"
                 courseMapping[key] = courseName
             }
+        }
+
+        // 套用手動覆蓋：manualCurriculum key 格式為 "weekday|period"
+        for (manualKey, subject) in manualCurriculum where !subject.isEmpty {
+            let parts = manualKey.split(separator: "|")
+            guard parts.count == 2 else { continue }
+            courseMapping["\(parts[0])-\(parts[1])"] = subject
+        }
+
+        // 根據套用手動後的 courseMapping 重新統計每科的週節數
+        var slotsPerCourse: [String: Int] = [:]
+        for course in courseMapping.values {
+            slotsPerCourse[course, default: 0] += 1
         }
 
         var absenceCount: [String: (truancy: Int, personalLeave: Int)] = [:]
@@ -503,7 +532,7 @@ class APIService: ObservableObject {
 
         var results: [SubjectAbsence] = []
         for (course, counts) in absenceCount {
-            let totalClasses = (curriculum[course]?.count ?? 0) * weeksPerSemester
+            let totalClasses = (slotsPerCourse[course] ?? 0) * weeksPerSemester
             let total        = counts.truancy + counts.personalLeave
             let percentage   = totalClasses > 0 ? Int((Double(total) / Double(totalClasses)) * 100) : 0
             results.append(SubjectAbsence(
@@ -533,14 +562,18 @@ class APIService: ObservableObject {
         components.queryItems = [URLQueryItem(name: "school_name", value: school.name)]
         guard let url = components.url else { return false }
 
-        let cookieString = savedCookies.map { "\($0.name)=\($0.value)" }.joined(separator: "; ")
+        let allowed = CharacterSet.urlQueryAllowed.subtracting(CharacterSet(charactersIn: ";, "))
+        let cookieString = savedCookies.map { cookie in
+            let encodedValue = cookie.value.addingPercentEncoding(withAllowedCharacters: allowed) ?? cookie.value
+            return "\(cookie.name)=\(encodedValue)"
+        }.joined(separator: "; ")
         var req = URLRequest(url: url)
         req.httpMethod = "GET"
         req.setValue(cookieString, forHTTPHeaderField: "Cookie")
         req.setValue("application/json", forHTTPHeaderField: "Accept")
 
         do {
-            let (_, response) = try await URLSession.shared.data(for: req)
+            let (_, response) = try await urlSession.data(for: req)
             guard let http = response as? HTTPURLResponse else { return false }
             print("🏓 [API] Ping 回應: \(http.statusCode)")
             if http.statusCode == 200 {
