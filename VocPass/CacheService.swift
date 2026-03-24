@@ -339,13 +339,6 @@ class CacheService {
     }
 
     func getCachedTimetable() -> TimetableData? {
-        guard let timestamp = userDefaults.object(forKey: CacheKey.timetableTimestamp.rawValue) as? Date else {
-            return nil
-        }
-        if Date().timeIntervalSince(timestamp) > cacheExpirationInterval {
-            clearTimetableCache()
-            return nil
-        }
         guard let data = userDefaults.data(forKey: CacheKey.timetable.rawValue) else { return nil }
         do {
             let timetable = try JSONDecoder().decode(TimetableData.self, from: data)
@@ -362,7 +355,6 @@ class CacheService {
         do {
             let data = try JSONEncoder().encode(timetable)
             userDefaults.set(data, forKey: CacheKey.timetable.rawValue)
-            userDefaults.set(Date(), forKey: CacheKey.timetableTimestamp.rawValue)
             sharedDefaults?.set(data, forKey: CacheKey.timetable.rawValue)
             WidgetCenter.shared.reloadAllTimelines()
             print("📦 [Cache] Saved timetable (\(timetable.entries.count) entries)")
@@ -373,7 +365,6 @@ class CacheService {
 
     func clearTimetableCache() {
         userDefaults.removeObject(forKey: CacheKey.timetable.rawValue)
-        userDefaults.removeObject(forKey: CacheKey.timetableTimestamp.rawValue)
         print("📦 [Cache] Cleared timetable cache")
     }
 
