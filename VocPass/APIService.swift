@@ -1005,6 +1005,47 @@ class APIService: ObservableObject {
         }
     }
 
+    // MARK: - 公告
+    func fetchNotices() async throws -> [NoticeItem] {
+        let school = try selectedSchool()
+        guard let noticeConfig = school.notice else {
+            throw APIError.featureNotSupported
+        }
+
+        guard var components = URLComponents(string: "\(AppConfig.vocPassAPIHost)/api/\(noticeConfig.vision)/notice") else {
+            throw URLError(.badURL)
+        }
+        components.queryItems = [URLQueryItem(name: "school_name", value: school.name)]
+        guard let url = components.url else { throw URLError(.badURL) }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "GET"
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        if !cookieString.isEmpty {
+            req.setValue(cookieString, forHTTPHeaderField: "Cookie")
+        }
+
+        let (data, response) = try await urlSession.data(for: req)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw URLError(.badServerResponse)
+        }
+
+        if httpResponse.statusCode == 404 {
+            throw APIError.featureNotSupported
+        }
+
+        guard httpResponse.statusCode == 200 else {
+            throw APIError.httpStatus(httpResponse.statusCode)
+        }
+
+        struct NoticeResponse: Decodable {
+            let code: Int?
+            let data: [NoticeItem]
+        }
+        let result = try JSONDecoder().decode(NoticeResponse.self, from: data)
+        return result.data
+    }
+
     // MARK: - 餐廳列表
     func fetchRestaurants(school: String) async throws -> [Restaurant] {
         guard var components = URLComponents(string: "\(AppConfig.vocPassAPIHost)/restaurant/") else {

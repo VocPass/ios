@@ -84,6 +84,35 @@ struct APIResponse<T: Decodable>: Decodable {
     }
 }
 
+// MARK: - 公告
+struct NoticeItem: Identifiable, Decodable {
+    var id: String { link }
+    let link: String
+    let title: String
+    let publisher: String
+    let date: String
+    let views: String
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        link = try c.decode(String.self, forKey: .link)
+        title = try c.decode(String.self, forKey: .title)
+        publisher = try c.decode(String.self, forKey: .publisher)
+        date = try c.decode(String.self, forKey: .date)
+        if let s = try? c.decode(String.self, forKey: .views) {
+            views = s
+        } else if let n = try? c.decode(Int.self, forKey: .views) {
+            views = String(n)
+        } else {
+            views = "0"
+        }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case link, title, publisher, date, views
+    }
+}
+
 // MARK: - 獎懲記錄
 struct MeritDemeritRecord: Identifiable, Codable {
     let id = UUID()

@@ -109,7 +109,7 @@ struct HomePageView: View {
                 Button {
                     showFollowing = true
                 } label: {
-                    Label("不揪", systemImage: "person.2.fill")
+                    Label("不揪？", systemImage: "person.2.fill")
                         .font(.headline)
                         .frame(maxWidth: .infinity)
                         .padding()
@@ -171,6 +171,14 @@ struct SchoolAffairsView: View {
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
                                     }
+                                }
+                            }
+                        }
+
+                        if schoolConfigManager.selectedSchool?.notice != nil {
+                            Section {
+                                NavigationLink(destination: SchoolNoticeView().environmentObject(apiService)) {
+                                    Label("公告", systemImage: "bell.fill")
                                 }
                             }
                         }

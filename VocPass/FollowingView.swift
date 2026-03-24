@@ -37,7 +37,7 @@ struct FollowingListView: View {
                     }
                 }
             }
-            .navigationTitle("追蹤課表")
+            .navigationTitle("已追蹤課表")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
