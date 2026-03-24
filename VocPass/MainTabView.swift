@@ -204,6 +204,9 @@ struct SchoolAffairsView: View {
                         .environmentObject(apiService)
                 }
             }
+            .onChange(of: apiService.isLoggedIn) { _, loggedIn in
+                if loggedIn { showLogin = false }
+            }
         }
     }
 }
