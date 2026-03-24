@@ -286,12 +286,14 @@ class APIService: ObservableObject {
     }
 
     // MARK: - 從缺曠記錄計算統計資料
-    private func computeAttendanceStatistics(from records: [AbsenceRecord]) -> AttendanceStatistics {
+    func computeAttendanceStatistics(from records: [AbsenceRecord], filterStandardOnly: Bool = false) -> AttendanceStatistics {
+        let standardPeriods: Set<String> = ["1", "2", "3", "4", "5", "6", "7"]
+        let filtered = filterStandardOnly ? records.filter { standardPeriods.contains($0.period) } : records
         var stats = AttendanceStatistics()
         let typeMapping: [String: String] = [
             "曠": "曠課", "事": "事假", "病": "病假", "公": "公假"
         ]
-        for record in records {
+        for record in filtered {
             let key = typeMapping[record.status] ?? record.status
             if record.academicYear == "上" {
                 let current = Int(stats.firstSemester[key] ?? "0") ?? 0
@@ -578,7 +580,7 @@ class APIService: ObservableObject {
     }
 
     // MARK: - 缺曠統計（結合課表）
-    func fetchAttendanceWithCurriculum(classNumber: String = "212") async throws -> (statistics: AttendanceStatistics, subjectAbsences: [SubjectAbsence]) {
+    func fetchAttendanceWithCurriculum(classNumber: String = "212") async throws -> (statistics: AttendanceStatistics, subjectAbsences: [SubjectAbsence], records: [AbsenceRecord]) {
         async let attendanceTask = fetchAttendance()
         async let curriculumTask = fetchCurriculum(classNumber: classNumber)
 
@@ -599,7 +601,7 @@ class APIService: ObservableObject {
             subjectAbsences = []
         }
 
-        return (attendanceResult.statistics, subjectAbsences)
+        return (attendanceResult.statistics, subjectAbsences, attendanceResult.records)
     }
 
     // MARK: - 計算各科目缺曠

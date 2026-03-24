@@ -11,9 +11,11 @@ struct AttendanceView: View {
     @EnvironmentObject var apiService: APIService
     @State private var statistics: AttendanceStatistics = AttendanceStatistics()
     @State private var subjectAbsences: [SubjectAbsence] = []
+    @State private var allRecords: [AbsenceRecord] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var isUnsupported = false
+    @AppStorage("excludeNonStandardPeriods") private var excludeNonStandardPeriods = true
 
     var body: some View {
         NavigationStack {
@@ -60,9 +62,22 @@ struct AttendanceView: View {
                 }
             }
             .navigationTitle("缺曠統計")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Toggle(isOn: $excludeNonStandardPeriods) {
+                        Text("僅 1~7 節")
+                            .font(.caption)
+                    }
+                    .toggleStyle(.button)
+                    .tint(.blue)
+                }
+            }
         }
         .task {
             await loadData()
+        }
+        .onChange(of: excludeNonStandardPeriods) {
+            statistics = apiService.computeAttendanceStatistics(from: allRecords, filterStandardOnly: excludeNonStandardPeriods)
         }
     }
 
@@ -114,7 +129,8 @@ struct AttendanceView: View {
         do {
             let result = try await apiService.fetchAttendanceWithCurriculum()
             await MainActor.run {
-                self.statistics = result.statistics
+                self.allRecords = result.records
+                self.statistics = apiService.computeAttendanceStatistics(from: result.records, filterStandardOnly: excludeNonStandardPeriods)
                 self.subjectAbsences = result.subjectAbsences
                 self.isLoading = false
             }
