@@ -368,18 +368,142 @@ class APIService: ObservableObject {
 
         // 從 curriculum 建立 TimetableEntry 列表（periodTimes 由 API 未提供，留空）
         var entries: [TimetableEntry] = []
+        var periodTimes: [String: PeriodTime] = [:]
         for (subject, info) in curriculum {
             for schedule in info.schedule {
                 entries.append(TimetableEntry(weekday: schedule.weekday,
                                                period: schedule.period,
-                                               subject: subject))
+                                               subject: subject,
+                                               room: schedule.room,
+                                               teacher: schedule.teacher))
+                // 從每條記錄的 start/end 建立節次時間（同一節次以第一筆為準）
+                if let s = schedule.start, let e = schedule.end,
+                   !s.isEmpty, !e.isEmpty,
+                   periodTimes[schedule.period] == nil {
+                    periodTimes[schedule.period] = PeriodTime(startTime: s, endTime: e)
+                }
             }
         }
 
-        let timetable = TimetableData(entries: entries, periodTimes: [:], curriculum: curriculum)
+        let timetable = TimetableData(entries: entries, periodTimes: periodTimes, curriculum: curriculum)
         CacheService.shared.cacheTimetable(timetable)
         CacheService.shared.cacheCurriculum(timetable.curriculum)
         return timetable
+    }
+
+    func fetchSharedCurriculum(username: String) async throws -> TimetableData {
+        guard let url = URL(string: "\(AppConfig.vocPassAPIHost)/api/curriculum/\(username)") else {
+            throw URLError(.badURL)
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "GET"
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        try? VocPassAuthService.shared.applyAuth(to: &req)
+
+        let (data, response) = try await urlSession.data(for: req)
+        if let http = response as? HTTPURLResponse, http.statusCode == 404 {
+            throw APIError.serverMessage("未找到用戶或用戶未分享")
+        }
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            throw APIError.httpStatus((response as? HTTPURLResponse)?.statusCode ?? -1)
+        }
+
+        let curriculum = try JSONDecoder().decode([String: CourseInfo].self, from: data)
+
+        var entries: [TimetableEntry] = []
+        var periodTimes: [String: PeriodTime] = [:]
+        for (subject, info) in curriculum {
+            for schedule in info.schedule {
+                entries.append(TimetableEntry(weekday: schedule.weekday,
+                                               period: schedule.period,
+                                               subject: subject,
+                                               room: schedule.room,
+                                               teacher: schedule.teacher))
+                if let s = schedule.start, let e = schedule.end,
+                   !s.isEmpty, !e.isEmpty,
+                   periodTimes[schedule.period] == nil {
+                    periodTimes[schedule.period] = PeriodTime(startTime: s, endTime: e)
+                }
+            }
+        }
+        let timetable = TimetableData(entries: entries, periodTimes: periodTimes, curriculum: curriculum)
+        CacheService.shared.cacheTimetable(timetable)
+        CacheService.shared.cacheCurriculum(timetable.curriculum)
+        return timetable
+    }
+
+    func setCurriculumSharing(share: Bool) async throws {
+        let shareValue = share ? 1 : 0
+        guard let url = URL(string: "\(AppConfig.vocPassAPIHost)/api/share_curriculum?share_status=\(shareValue)") else {
+            throw URLError(.badURL)
+        }
+
+        let mergedCurriculum = buildMergedCurriculum()
+        let body = try JSONEncoder().encode(mergedCurriculum)
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        req.httpBody = body
+        try VocPassAuthService.shared.applyAuth(to: &req)
+
+        let (_, response) = try await urlSession.data(for: req)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            throw APIError.httpStatus((response as? HTTPURLResponse)?.statusCode ?? -1)
+        }
+        CacheService.shared.isCurriculumSharing = share
+    }
+
+    /// 合併 API 課表 + 手動課表 + 手動教室/教師，建立完整的上傳課表
+    private func buildMergedCurriculum() -> [String: CourseInfo] {
+        let cached = CacheService.shared.getCachedTimetable()
+        let manualSubjects = CacheService.shared.manualCurriculum   // ["weekday|period": subject]
+        let manualExtras   = CacheService.shared.manualRoomTeacher  // ["weekday|period": CourseExtra]
+
+        var subjectSchedules: [String: [CourseSchedule]] = [:]
+        var coveredKeys = Set<String>()
+
+        // Apply overrides on top of API entries
+        if let timetable = cached {
+            for entry in timetable.entries {
+                let key = "\(entry.weekday)|\(entry.period)"
+                coveredKeys.insert(key)
+
+                let subject = manualSubjects[key] ?? entry.subject
+                let extra   = manualExtras[key]
+                let room    = extra.flatMap { $0.room.isEmpty ? nil : $0.room }    ?? entry.room
+                let teacher = extra.flatMap { $0.teacher.isEmpty ? nil : $0.teacher } ?? entry.teacher
+                let pt      = timetable.periodTimes[entry.period]
+
+                let schedule = CourseSchedule(
+                    weekday: entry.weekday, period: entry.period,
+                    start: pt?.startTime, end: pt?.endTime,
+                    room: room, teacher: teacher
+                )
+                subjectSchedules[subject, default: []].append(schedule)
+            }
+        }
+
+        // Add manual-only entries (cells not in API timetable)
+        for (key, subject) in manualSubjects where !coveredKeys.contains(key) {
+            let parts = key.split(separator: "|")
+            guard parts.count == 2 else { continue }
+            let weekday = String(parts[0])
+            let period  = String(parts[1])
+            let extra   = manualExtras[key]
+            let room    = extra.flatMap { $0.room.isEmpty ? nil : $0.room }
+            let teacher = extra.flatMap { $0.teacher.isEmpty ? nil : $0.teacher }
+
+            let schedule = CourseSchedule(weekday: weekday, period: period, room: room, teacher: teacher)
+            subjectSchedules[subject, default: []].append(schedule)
+        }
+
+        var result: [String: CourseInfo] = [:]
+        for (subject, schedules) in subjectSchedules {
+            result[subject] = CourseInfo(count: schedules.count, schedule: schedules)
+        }
+        return result
     }
 
     func fetchCurriculum(classNumber: String = "212", forceRefresh: Bool = false) async throws -> [String: CourseInfo] {

@@ -418,9 +418,11 @@ struct CourseSchedule: Identifiable, Codable {
     let period: String            // 第幾節
     let start: String?            // 開始時間 "HH:mm"
     let end: String?              // 結束時間 "HH:mm"
+    let room: String?             // 教室
+    let teacher: String?          // 教師
 
     enum CodingKeys: String, CodingKey {
-        case weekday, period, start, end
+        case weekday, period, start, end, room, teacher
     }
 
     private enum AlternateCodingKeys: String, CodingKey {
@@ -429,13 +431,21 @@ struct CourseSchedule: Identifiable, Codable {
         case weekDay = "week_day"
         case section
         case classPeriod = "class_period"
+        case classroom
+        case location
+        case instructor
+        case teacherName = "teacher_name"
+        case tracher               // API typo for "teacher"
     }
 
-    init(weekday: String, period: String, start: String? = nil, end: String? = nil) {
+    init(weekday: String, period: String, start: String? = nil, end: String? = nil,
+         room: String? = nil, teacher: String? = nil) {
         self.weekday = weekday
         self.period = period
         self.start = start
         self.end = end
+        self.room = room
+        self.teacher = teacher
     }
 
     init(from decoder: Decoder) throws {
@@ -451,9 +461,23 @@ struct CourseSchedule: Identifiable, Codable {
             ?? (try? alt.decodeLossyString(forKey: .section))
             ?? (try? alt.decodeLossyString(forKey: .classPeriod))
             ?? ""
-        start = try? c.decode(String.self, forKey: .start)
-        end   = try? c.decode(String.self, forKey: .end)
+        start   = try? c.decode(String.self, forKey: .start)
+        end     = try? c.decode(String.self, forKey: .end)
+        room    = (try? c.decode(String.self, forKey: .room))
+            ?? (try? alt.decode(String.self, forKey: .classroom))
+            ?? (try? alt.decode(String.self, forKey: .location))
+        let rawTeacher = (try? c.decode(String.self, forKey: .teacher))
+            ?? (try? alt.decode(String.self, forKey: .tracher))
+            ?? (try? alt.decode(String.self, forKey: .instructor))
+            ?? (try? alt.decode(String.self, forKey: .teacherName))
+        teacher = rawTeacher.flatMap { $0.isEmpty ? nil : $0 }
     }
+}
+
+// MARK: - 手動教室/教師覆寫（key = "weekday|period"）
+struct CourseExtra: Codable {
+    var room: String
+    var teacher: String
 }
 
 struct CourseInfo: Codable {
@@ -935,16 +959,21 @@ struct TimetableEntry: Codable, Identifiable {
     let weekday: String
     let period: String
     let subject: String
+    let room: String?
+    let teacher: String?
 
-    init(weekday: String, period: String, subject: String) {
+    init(weekday: String, period: String, subject: String,
+         room: String? = nil, teacher: String? = nil) {
         self.id = UUID()
         self.weekday = weekday
         self.period = period
         self.subject = subject
+        self.room = room
+        self.teacher = teacher
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, weekday, period, subject
+        case id, weekday, period, subject, room, teacher
     }
 
     private enum AlternateCodingKeys: String, CodingKey {
@@ -954,6 +983,10 @@ struct TimetableEntry: Codable, Identifiable {
         case classPeriod = "class_period"
         case course
         case courseName = "course_name"
+        case classroom
+        case location
+        case instructor
+        case teacherName = "teacher_name"
     }
 
     init(from decoder: Decoder) throws {
@@ -973,6 +1006,12 @@ struct TimetableEntry: Codable, Identifiable {
             ?? (try? alt.decodeLossyString(forKey: .course))
             ?? (try? alt.decodeLossyString(forKey: .courseName))
             ?? ""
+        room    = (try? c.decode(String.self, forKey: .room))
+            ?? (try? alt.decode(String.self, forKey: .classroom))
+            ?? (try? alt.decode(String.self, forKey: .location))
+        teacher = (try? c.decode(String.self, forKey: .teacher))
+            ?? (try? alt.decode(String.self, forKey: .instructor))
+            ?? (try? alt.decode(String.self, forKey: .teacherName))
     }
 }
 

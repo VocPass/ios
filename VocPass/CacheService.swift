@@ -34,6 +34,9 @@ class CacheService {
         case autoStartMinutesBefore = "auto_start_minutes_before"
         case manualCurriculum = "manual_curriculum"
         case manualPeriodTimes = "manual_period_times"
+        case manualRoomTeacher = "manual_room_teacher"
+        case isCurriculumSharing = "is_curriculum_sharing"
+        case followedUsernames = "followed_usernames"
         case savedCookies = "saved_cookies"
         case vocPassCookies = "vocpass_auth_cookies"
         case weeksPerSemester = "weeks_per_semester"
@@ -93,6 +96,37 @@ class CacheService {
             if let data = try? JSONEncoder().encode(newValue) {
                 userDefaults.set(data, forKey: CacheKey.manualPeriodTimes.rawValue)
                 sharedDefaults?.set(data, forKey: CacheKey.manualPeriodTimes.rawValue)
+                WidgetCenter.shared.reloadAllTimelines()
+            }
+        }
+    }
+
+    // MARK: - Curriculum Sharing
+
+    var isCurriculumSharing: Bool {
+        get { userDefaults.bool(forKey: CacheKey.isCurriculumSharing.rawValue) }
+        set { userDefaults.set(newValue, forKey: CacheKey.isCurriculumSharing.rawValue) }
+    }
+
+    // MARK: - 追蹤名單
+    var followedUsernames: [String] {
+        get { userDefaults.array(forKey: CacheKey.followedUsernames.rawValue) as? [String] ?? [] }
+        set { userDefaults.set(newValue, forKey: CacheKey.followedUsernames.rawValue) }
+    }
+
+    // MARK: - Manual Room/Teacher (key = "weekday|period")
+
+    var manualRoomTeacher: [String: CourseExtra] {
+        get {
+            guard let data = userDefaults.data(forKey: CacheKey.manualRoomTeacher.rawValue),
+                  let dict = try? JSONDecoder().decode([String: CourseExtra].self, from: data)
+            else { return [:] }
+            return dict
+        }
+        set {
+            if let data = try? JSONEncoder().encode(newValue) {
+                userDefaults.set(data, forKey: CacheKey.manualRoomTeacher.rawValue)
+                sharedDefaults?.set(data, forKey: CacheKey.manualRoomTeacher.rawValue)
                 WidgetCenter.shared.reloadAllTimelines()
             }
         }
@@ -292,7 +326,7 @@ class CacheService {
     }
 
     // MARK: - Timetable Cache
-    private let timetableParserVersion = "v3"
+    private let timetableParserVersion = "v4"
     private let timetableParserVersionKey = "timetable_parser_version"
 
     func invalidateTimetableCacheIfNeeded() {
@@ -355,6 +389,9 @@ class CacheService {
         }
         if let periodData = userDefaults.data(forKey: CacheKey.manualPeriodTimes.rawValue) {
             sharedDefaults?.set(periodData, forKey: CacheKey.manualPeriodTimes.rawValue)
+        }
+        if let rtData = userDefaults.data(forKey: CacheKey.manualRoomTeacher.rawValue) {
+            sharedDefaults?.set(rtData, forKey: CacheKey.manualRoomTeacher.rawValue)
         }
 
         WidgetCenter.shared.reloadAllTimelines()

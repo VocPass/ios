@@ -393,12 +393,17 @@ final class DynamicIslandService: ObservableObject {
             afterCurrent = slots.first { $0.start > date }
         }
 
-        let daySlots = slots.map {
-            ClassScheduleActivityAttributes.ContentState.DaySlot(
-                period: $0.entry.period,
-                subject: $0.entry.subject,
-                startTime: $0.start,
-                endTime: $0.end
+        let manualRoomTeacher = CacheService.shared.manualRoomTeacher
+        let daySlots = slots.map { slot -> ClassScheduleActivityAttributes.ContentState.DaySlot in
+            let key = "\(slot.entry.weekday)|\(slot.entry.period)"
+            let manual = manualRoomTeacher[key]
+            return ClassScheduleActivityAttributes.ContentState.DaySlot(
+                period:    slot.entry.period,
+                subject:   slot.entry.subject,
+                startTime: slot.start,
+                endTime:   slot.end,
+                room:      manual?.room    ?? slot.entry.room    ?? "",
+                teacher:   manual?.teacher ?? slot.entry.teacher ?? ""
             )
         }
 

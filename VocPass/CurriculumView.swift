@@ -11,18 +11,22 @@ import ActivityKit
 struct CurriculumView: View {
     @EnvironmentObject var apiService: APIService
     @StateObject private var dynamicIsland = DynamicIslandService.shared
-    @State private var curriculum: [String: CourseInfo] = [:]
-    @State private var isLoading = true
+    @State private var curriculum: [String: CourseInfo] = CacheService.shared.getCachedTimetable()?.curriculum ?? [:]
+    @State private var isLoading = CacheService.shared.getCachedTimetable() == nil
     @State private var errorMessage: String?
     @State private var isUnsupported = false
 
+    // 分享
+    @State private var showShareSheet = false
+
     // 手動輸入科目
     @State private var manualCurriculum: [String: String] = CacheService.shared.manualCurriculum
+    @State private var manualRoomTeacher: [String: CourseExtra] = CacheService.shared.manualRoomTeacher
     @State private var editingCell: (weekday: String, period: String)? = nil
     @State private var editText = ""
 
     // 節次時間
-    @State private var apiPeriodTimes: [String: PeriodTime] = [:]
+    @State private var apiPeriodTimes: [String: PeriodTime] = CacheService.shared.getCachedTimetable()?.periodTimes ?? [:]
     @State private var manualPeriodTimes: [String: PeriodTime] = CacheService.shared.manualPeriodTimes
     @State private var editingPeriod: String? = nil
 
@@ -106,13 +110,26 @@ struct CurriculumView: View {
             .navigationTitle("課表")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        Task { await loadData(forceRefresh: true) }
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
+                    HStack(spacing: 4) {
+                        Button {
+                            showShareSheet = true
+                        } label: {
+                            Image(systemName: "person.2.wave.2")
+                        }
+                        Button {
+                            Task { await loadData(forceRefresh: true) }
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                        }
+                        .disabled(isLoading)
                     }
-                    .disabled(isLoading)
                 }
+            }
+            .sheet(isPresented: $showShareSheet) {
+                CurriculumShareSheet()
+                    .environmentObject(apiService)
+                    .presentationDetents([.medium])
+                    .presentationDragIndicator(.visible)
             }
             .sheet(isPresented: Binding(
                 get: { editingPeriod != nil },
@@ -146,29 +163,38 @@ struct CurriculumView: View {
                 set: { if !$0 { editingCell = nil } }
             )) {
                 if let cell = editingCell {
+                    let key = manualKey(cell.weekday, cell.period)
                     CellEditSheet(
                         weekday: cell.weekday,
                         period: cell.period,
                         currentText: editText,
+                        currentExtra: manualRoomTeacher[key] ?? apiExtra(weekday: cell.weekday, period: cell.period),
                         apiSubject: apiSubject(weekday: cell.weekday, period: cell.period),
-                        hasManualOverride: manualCurriculum[manualKey(cell.weekday, cell.period)] != nil,
-                        onSave: { newText in
-                            let key = manualKey(cell.weekday, cell.period)
+                        apiExtra: apiExtra(weekday: cell.weekday, period: cell.period),
+                        hasManualOverride: manualCurriculum[key] != nil || manualRoomTeacher[key] != nil,
+                        onSave: { newText, newExtra in
                             manualCurriculum[key] = newText
                             CacheService.shared.manualCurriculum = manualCurriculum
+                            if newExtra.room.isEmpty && newExtra.teacher.isEmpty {
+                                manualRoomTeacher.removeValue(forKey: key)
+                            } else {
+                                manualRoomTeacher[key] = newExtra
+                            }
+                            CacheService.shared.manualRoomTeacher = manualRoomTeacher
                             editingCell = nil
                         },
                         onClear: {
-                            let key = manualKey(cell.weekday, cell.period)
                             manualCurriculum.removeValue(forKey: key)
+                            manualRoomTeacher.removeValue(forKey: key)
                             CacheService.shared.manualCurriculum = manualCurriculum
+                            CacheService.shared.manualRoomTeacher = manualRoomTeacher
                             editingCell = nil
                         },
                         onCancel: {
                             editingCell = nil
                         }
                     )
-                    .presentationDetents([.height(280)])
+                    .presentationDetents([.height(360)])
                     .presentationDragIndicator(.visible)
                 }
             }
@@ -213,7 +239,7 @@ struct CurriculumView: View {
                                     .foregroundStyle(.secondary)
                             }
                         }
-                        .frame(width: 40, height: 60)
+                        .frame(width: 40, height: 68)
                         .background(manualPeriodTimes[period] != nil
                                     ? Color.orange.opacity(0.12)
                                     : Color(.systemGray6))
@@ -221,34 +247,49 @@ struct CurriculumView: View {
                     .buttonStyle(.plain)
 
                     ForEach(weekdays, id: \.self) { weekday in
-                        let subject = getSubject(weekday: weekday, period: period)
-                        let isNow   = isCurrentPeriod(weekday: weekday, period: period)
+                        let subject  = getSubject(weekday: weekday, period: period)
+                        let extra    = getExtra(weekday: weekday, period: period)
+                        let isNow    = isCurrentPeriod(weekday: weekday, period: period)
                         let isManual = manualCurriculum[manualKey(weekday, period)] != nil
+                                    || manualRoomTeacher[manualKey(weekday, period)] != nil
+                        let meta     = [extra.room, extra.teacher].filter { !$0.isEmpty }.joined(separator: "・")
 
                         Button {
                             editText = subject
                             editingCell = (weekday: weekday, period: period)
                         } label: {
                             ZStack(alignment: .topTrailing) {
-                                Text(subject)
-                                    .frame(maxWidth: .infinity, minHeight: 60)
-                                    .background(
-                                        isNow
-                                            ? Color.blue.opacity(0.25)
-                                            : (subject.isEmpty
-                                               ? Color(.systemBackground)
-                                               : randomColor(for: subject).opacity(0.2))
-                                    )
-                                    .overlay(isNow ? RoundedRectangle(cornerRadius: 2).stroke(Color.blue, lineWidth: 1.5) : nil)
-                                    .font(.caption2)
-                                    .lineLimit(2)
-                                    .multilineTextAlignment(.center)
+                                VStack(spacing: 2) {
+                                    Text(subject.isEmpty ? " " : subject)
+                                        .font(.system(size: 11, weight: isNow ? .semibold : .regular))
+                                        .foregroundStyle(subject.isEmpty ? Color.clear : Color.primary)
+                                        .lineLimit(2)
+                                        .multilineTextAlignment(.center)
+                                    if !meta.isEmpty {
+                                        Text(meta)
+                                            .font(.system(size: 8))
+                                            .foregroundStyle(isNow ? Color.blue.opacity(0.8) : Color.secondary)
+                                            .lineLimit(2)
+                                            .multilineTextAlignment(.center)
+                                    }
+                                }
+                                .padding(.horizontal, 2)
+                                .padding(.vertical, 4)
+                                .frame(maxWidth: .infinity, minHeight: 68)
+                                .background(
+                                    isNow
+                                        ? Color.blue.opacity(0.18)
+                                        : (subject.isEmpty
+                                           ? Color(.systemBackground)
+                                           : randomColor(for: subject).opacity(0.15))
+                                )
+                                .overlay(isNow ? RoundedRectangle(cornerRadius: 2).stroke(Color.blue, lineWidth: 1.5) : nil)
 
                                 if isManual {
                                     Circle()
                                         .fill(Color.orange)
                                         .frame(width: 5, height: 5)
-                                        .padding(4)
+                                        .padding(3)
                                 }
                             }
                         }
@@ -291,12 +332,29 @@ struct CurriculumView: View {
         return ""
     }
 
+    private func apiExtra(weekday: String, period: String) -> CourseExtra {
+        for (_, info) in curriculum {
+            for schedule in info.schedule {
+                if schedule.weekday == weekday && schedule.period == period {
+                    return CourseExtra(room: schedule.room ?? "", teacher: schedule.teacher ?? "")
+                }
+            }
+        }
+        return CourseExtra(room: "", teacher: "")
+    }
+
     private func getSubject(weekday: String, period: String) -> String {
         let key = manualKey(weekday, period)
         if let manual = manualCurriculum[key] {
             return manual
         }
         return apiSubject(weekday: weekday, period: period)
+    }
+
+    private func getExtra(weekday: String, period: String) -> CourseExtra {
+        let key = manualKey(weekday, period)
+        if let manual = manualRoomTeacher[key] { return manual }
+        return apiExtra(weekday: weekday, period: period)
     }
 
     private func isCurrentPeriod(weekday: String, period: String) -> Bool {
@@ -454,16 +512,19 @@ struct CellEditSheet: View {
     let weekday: String
     let period: String
     @State var currentText: String
+    @State var currentExtra: CourseExtra
     let apiSubject: String
+    let apiExtra: CourseExtra
     let hasManualOverride: Bool
-    let onSave: (String) -> Void
+    let onSave: (String, CourseExtra) -> Void
     let onClear: () -> Void
     let onCancel: () -> Void
 
-    @FocusState private var isFocused: Bool
+    @FocusState private var focusedField: Field?
+    private enum Field { case subject, room, teacher }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 14) {
             HStack {
                 Text("週\(weekday) 第\(period)節")
                     .font(.headline)
@@ -472,16 +533,40 @@ struct CellEditSheet: View {
                     .foregroundStyle(.secondary)
             }
 
-            TextField("輸入科目名稱", text: $currentText)
+            TextField("科目名稱", text: $currentText)
                 .textFieldStyle(.roundedBorder)
-                .focused($isFocused)
-                .onSubmit { onSave(currentText) }
+                .focused($focusedField, equals: .subject)
+                .onSubmit { focusedField = .room }
 
-            if !apiSubject.isEmpty && apiSubject != currentText {
+            HStack(spacing: 8) {
+                Label("", systemImage: "door.right.hand.closed")
+                    .foregroundStyle(.secondary)
+                    .frame(width: 20)
+                TextField("教室（選填）", text: $currentExtra.room)
+                    .textFieldStyle(.roundedBorder)
+                    .focused($focusedField, equals: .room)
+                    .onSubmit { focusedField = .teacher }
+            }
+
+            HStack(spacing: 8) {
+                Label("", systemImage: "person.fill")
+                    .foregroundStyle(.secondary)
+                    .frame(width: 20)
+                TextField("教師（選填）", text: $currentExtra.teacher)
+                    .textFieldStyle(.roundedBorder)
+                    .focused($focusedField, equals: .teacher)
+                    .onSubmit { onSave(currentText, currentExtra) }
+            }
+
+            let hasApiDiff = (!apiSubject.isEmpty && apiSubject != currentText)
+                          || (!apiExtra.room.isEmpty && apiExtra.room != currentExtra.room)
+                          || (!apiExtra.teacher.isEmpty && apiExtra.teacher != currentExtra.teacher)
+            if hasApiDiff {
                 Button {
-                    currentText = apiSubject
+                    currentText  = apiSubject
+                    currentExtra = apiExtra
                 } label: {
-                    Label("還原為課表資料：\(apiSubject)", systemImage: "arrow.uturn.backward")
+                    Label("還原為課表資料", systemImage: "arrow.uturn.backward")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -499,7 +584,7 @@ struct CellEditSheet: View {
                 }
 
                 Button {
-                    onSave(currentText)
+                    onSave(currentText, currentExtra)
                 } label: {
                     Text("儲存")
                         .frame(maxWidth: .infinity)
@@ -508,7 +593,296 @@ struct CellEditSheet: View {
             }
         }
         .padding(24)
-        .onAppear { isFocused = true }
+        .onAppear { focusedField = .subject }
+    }
+}
+
+// MARK: - 課表分享 Sheet
+
+struct CurriculumShareSheet: View {
+    @EnvironmentObject var apiService: APIService
+    @StateObject private var vocPassAuth = VocPassAuthService.shared
+
+    @State private var isSharing: Bool = CacheService.shared.isCurriculumSharing
+    @State private var isLoadingStatus = false
+    @State private var isUpdating = false
+    @State private var isSyncing = false
+    @State private var syncMessage: String?
+    @State private var errorMessage: String?
+
+    // 下載他人課表
+    @State private var downloadUsername = ""
+    @State private var isDownloading = false
+    @State private var downloadMessage: String?
+    @State private var downloadError: String?
+    @State private var showDownloadConfirm = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // 標題列
+            HStack {
+                Label("分享課表", systemImage: "person.2.wave.2.fill")
+                    .font(.headline)
+                Spacer()
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 24)
+            .padding(.bottom, 16)
+
+            Divider()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    if !vocPassAuth.isLoggedIn {
+                        // 未登入 VocPass 帳號
+                        HStack(spacing: 12) {
+                            Image(systemName: "person.crop.circle.badge.exclamationmark")
+                                .font(.title2)
+                                .foregroundStyle(.orange)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("請先登入 VocPass 帳號")
+                                    .font(.subheadline.weight(.medium))
+                                Text("需要 VocPass 帳號才能使用課表分享功能。")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(14)
+                        .background(Color.orange.opacity(0.08))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                    } else {
+                        // 使用者資訊
+                        HStack(spacing: 12) {
+                            Image(systemName: "person.circle.fill")
+                                .font(.title)
+                                .foregroundStyle(.blue)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(vocPassAuth.currentUser?.displayName ?? "")
+                                    .font(.subheadline.weight(.medium))
+                                Text("@\(vocPassAuth.currentUser?.username ?? "")")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+
+                        Divider()
+
+                        // 說明
+                        VStack(alignment: .leading, spacing: 10) {
+                            Label("如何運作？", systemImage: "info.circle.fill")
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(.blue)
+
+                            VStack(alignment: .leading, spacing: 6) {
+                                BulletRow(icon: "arrow.up.to.line", text: "開啟共享後，你的課表資料將上傳至 VocPass 伺服器。")
+                                BulletRow(icon: "person.badge.plus", text: "其他人可以透過你的用戶名稱（\(vocPassAuth.currentUser?.username ?? "username")）追蹤你的課表。")
+                                BulletRow(icon: "lock.open", text: "關閉共享後，伺服器上的課表資料將設為私人。")
+                            }
+                        }
+
+                        Divider()
+
+                        // 開關
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("開始共享課表")
+                                    .font(.subheadline.weight(.medium))
+                                Text(isSharing ? "目前已開啟，課表對外可見" : "目前已關閉，課表為私人狀態")
+                                    .font(.caption)
+                                    .foregroundStyle(isSharing ? .green : .secondary)
+                            }
+                            Spacer()
+                            if isLoadingStatus || isUpdating {
+                                ProgressView()
+                                    .scaleEffect(0.9)
+                            } else {
+                                Toggle("", isOn: $isSharing)
+                                    .labelsHidden()
+                                    .onChange(of: isSharing) { _, newValue in
+                                        Task { await updateSharing(newValue) }
+                                    }
+                            }
+                        }
+                        .padding(14)
+                        .background(Color(.secondarySystemBackground))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+
+                        // 重新同步按鈕
+                        Button {
+                            Task { await resync() }
+                        } label: {
+                            HStack {
+                                if isSyncing {
+                                    ProgressView()
+                                        .scaleEffect(0.85)
+                                        .tint(.white)
+                                } else {
+                                    Label("重新同步課表至伺服器", systemImage: "arrow.triangle.2.circlepath")
+                                }
+                            }
+                            .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(isSyncing || isUpdating || isLoadingStatus)
+
+                        if let msg = syncMessage {
+                            Label(msg, systemImage: "checkmark.circle.fill")
+                                .font(.caption)
+                                .foregroundStyle(.green)
+                        }
+
+                        if let err = errorMessage {
+                            Label(err, systemImage: "exclamationmark.triangle.fill")
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                        }
+
+                        Divider()
+
+                        // 下載他人課表
+                        VStack(alignment: .leading, spacing: 10) {
+                            Label("下載他人課表", systemImage: "arrow.down.circle.fill")
+                                .font(.subheadline.weight(.medium))
+
+                            Text("輸入對方的用戶名稱，將其課表下載並覆蓋目前的課表。")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+
+                            HStack(spacing: 8) {
+                                HStack(spacing: 4) {
+                                    Text("@")
+                                        .foregroundStyle(.secondary)
+                                        .font(.subheadline)
+                                    TextField("用戶名稱", text: $downloadUsername)
+                                        .textInputAutocapitalization(.never)
+                                        .autocorrectionDisabled()
+                                        .onSubmit {
+                                            if !downloadUsername.trimmingCharacters(in: .whitespaces).isEmpty {
+                                                showDownloadConfirm = true
+                                            }
+                                        }
+                                }
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 8)
+                                .background(Color(.secondarySystemBackground))
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+
+                                Button {
+                                    showDownloadConfirm = true
+                                } label: {
+                                    if isDownloading {
+                                        ProgressView().scaleEffect(0.85)
+                                    } else {
+                                        Image(systemName: "arrow.down.circle.fill")
+                                            .font(.title2)
+                                    }
+                                }
+                                .disabled(downloadUsername.trimmingCharacters(in: .whitespaces).isEmpty || isDownloading)
+                                .tint(.blue)
+                            }
+
+                            if let msg = downloadMessage {
+                                Label(msg, systemImage: "checkmark.circle.fill")
+                                    .font(.caption)
+                                    .foregroundStyle(.green)
+                            }
+                            if let err = downloadError {
+                                Label(err, systemImage: "exclamationmark.triangle.fill")
+                                    .font(.caption)
+                                    .foregroundStyle(.red)
+                            }
+                        }
+                    }
+                }
+                .padding(24)
+            }
+        }
+        .confirmationDialog(
+            "下載 @\(downloadUsername) 的課表並覆蓋目前課表？",
+            isPresented: $showDownloadConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("下載並覆蓋", role: .destructive) {
+                Task { await downloadCurriculum() }
+            }
+            Button("取消", role: .cancel) {}
+        }
+        .task {
+            guard vocPassAuth.isLoggedIn else { return }
+            isLoadingStatus = true
+            do {
+                let user = try await vocPassAuth.fetchMe()
+                await MainActor.run {
+                    if let status = user.shareStatus {
+                        isSharing = status
+                        CacheService.shared.isCurriculumSharing = status
+                    }
+                }
+            } catch {
+                // 保留快取值，不做任何變更
+            }
+            await MainActor.run { isLoadingStatus = false }
+        }
+    }
+
+    private func updateSharing(_ share: Bool) async {
+        isUpdating = true
+        errorMessage = nil
+        syncMessage = nil
+        do {
+            try await apiService.setCurriculumSharing(share: share)
+        } catch {
+            await MainActor.run {
+                errorMessage = error.localizedDescription
+                isSharing = !share   // rollback
+            }
+        }
+        await MainActor.run { isUpdating = false }
+    }
+
+    private func downloadCurriculum() async {
+        let target = downloadUsername.trimmingCharacters(in: .whitespaces)
+        guard !target.isEmpty else { return }
+        isDownloading = true
+        downloadError = nil
+        downloadMessage = nil
+        do {
+            _ = try await apiService.fetchSharedCurriculum(username: target)
+            await MainActor.run { downloadMessage = "已成功下載 @\(target) 的課表" }
+        } catch {
+            await MainActor.run { downloadError = error.localizedDescription }
+        }
+        await MainActor.run { isDownloading = false }
+    }
+
+    private func resync() async {
+        isSyncing = true
+        errorMessage = nil
+        syncMessage = nil
+        do {
+            try await apiService.setCurriculumSharing(share: isSharing)
+            await MainActor.run { syncMessage = "同步成功" }
+        } catch {
+            await MainActor.run { errorMessage = error.localizedDescription }
+        }
+        await MainActor.run { isSyncing = false }
+    }
+}
+
+private struct BulletRow: View {
+    let icon: String
+    let text: String
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: icon)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: 16, height: 16)
+            Text(text)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 }
 

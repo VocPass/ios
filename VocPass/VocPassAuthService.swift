@@ -14,10 +14,12 @@ struct VocPassUser: Codable {
     let avatar: String?
     let emailVisibility: Bool
     let verified: Bool
+    let shareStatus: Bool?
 
     enum CodingKeys: String, CodingKey {
         case id, name, username, email, avatar, verified
         case emailVisibility = "email_visibility"
+        case shareStatus = "share_status"
     }
 
     var avatarURL: URL? {
@@ -60,6 +62,9 @@ class VocPassAuthService: ObservableObject {
             await MainActor.run {
                 self.currentUser = user
                 self.isLoggedIn = true
+                if let status = user.shareStatus {
+                    CacheService.shared.isCurriculumSharing = status
+                }
             }
             print("✅ [VocPassAuth] 登入成功：\(user.displayName)")
         } catch {
@@ -78,6 +83,9 @@ class VocPassAuthService: ObservableObject {
             await MainActor.run {
                 self.currentUser = user
                 self.isLoggedIn = true
+                if let status = user.shareStatus {
+                    CacheService.shared.isCurriculumSharing = status
+                }
             }
             print("✅ [VocPassAuth] 已恢復 session：\(user.displayName)")
         } catch {

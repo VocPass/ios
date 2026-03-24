@@ -12,10 +12,14 @@ import WidgetKit
 private struct ResolvedScheduleState {
     let currentPeriod: String
     let currentSubject: String
+    let currentRoom: String
+    let currentTeacher: String
     let currentStartTime: Date?
     let currentEndTime: Date?
     let nextPeriod: String
     let nextSubject: String
+    let nextRoom: String
+    let nextTeacher: String
     let nextStartTime: Date?
 }
 
@@ -29,10 +33,14 @@ private func resolveScheduleState(
         return ResolvedScheduleState(
             currentPeriod: context.state.currentPeriod,
             currentSubject: context.state.currentSubject,
+            currentRoom: "",
+            currentTeacher: "",
             currentStartTime: context.state.currentStartTime,
             currentEndTime: context.state.currentEndTime,
             nextPeriod: context.state.nextPeriod,
             nextSubject: context.state.nextSubject,
+            nextRoom: "",
+            nextTeacher: "",
             nextStartTime: context.state.nextStartTime
         )
     }
@@ -42,10 +50,14 @@ private func resolveScheduleState(
         return ResolvedScheduleState(
             currentPeriod: current.period,
             currentSubject: current.subject,
+            currentRoom: current.room,
+            currentTeacher: current.teacher,
             currentStartTime: current.startTime,
             currentEndTime: current.endTime,
             nextPeriod: next?.period ?? "",
             nextSubject: next?.subject ?? "",
+            nextRoom: next?.room ?? "",
+            nextTeacher: next?.teacher ?? "",
             nextStartTime: next?.startTime
         )
     }
@@ -54,10 +66,14 @@ private func resolveScheduleState(
     return ResolvedScheduleState(
         currentPeriod: "",
         currentSubject: "",
+        currentRoom: "",
+        currentTeacher: "",
         currentStartTime: nil,
         currentEndTime: nil,
         nextPeriod: next?.period ?? "",
         nextSubject: next?.subject ?? "",
+        nextRoom: next?.room ?? "",
+        nextTeacher: next?.teacher ?? "",
         nextStartTime: next?.startTime
     )
 }
@@ -112,7 +128,10 @@ private struct ClassScheduleLockScreenBanner: View {
                         .foregroundStyle(.blue)
                 }
                 if !s.currentPeriod.isEmpty {
-                    Text("第\(s.currentPeriod)節")
+                    let meta = [s.currentPeriod.isEmpty ? "" : "第\(s.currentPeriod)節",
+                                s.currentRoom, s.currentTeacher]
+                        .filter { !$0.isEmpty }.joined(separator: "・")
+                    Text(meta)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -146,7 +165,7 @@ private struct ClassScheduleLockScreenBanner: View {
             if !s.nextSubject.isEmpty {
                 Divider().frame(height: 44)
 
-                VStack(alignment: .trailing, spacing: 4) {
+                VStack(alignment: .trailing, spacing: 3) {
                     Text("下一堂")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
@@ -154,6 +173,13 @@ private struct ClassScheduleLockScreenBanner: View {
                         .font(.subheadline)
                         .fontWeight(.medium)
                         .lineLimit(1)
+                    let nextMeta = [s.nextRoom, s.nextTeacher].filter { !$0.isEmpty }.joined(separator: "・")
+                    if !nextMeta.isEmpty {
+                        Text(nextMeta)
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
                     if let startTime = s.nextStartTime {
                         Text(startTime, style: .time)
                             .font(.caption)
@@ -242,6 +268,13 @@ private struct ExpandedTrailingView: View {
                     .font(.caption)
                     .fontWeight(.semibold)
                     .lineLimit(1)
+                let nextMeta = [s.nextRoom, s.nextTeacher].filter { !$0.isEmpty }.joined(separator: "・")
+                if !nextMeta.isEmpty {
+                    Text(nextMeta)
+                        .font(.system(size: 9))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
                 if let startTime = s.nextStartTime {
                     Text(startTime, style: .time)
                         .font(.system(size: 10))
@@ -261,9 +294,17 @@ private struct ExpandedBottomView: View {
         if !s.currentSubject.isEmpty,
            let endTime = s.currentEndTime {
             HStack {
-                Text("第\(s.currentPeriod)節  \(s.currentSubject)")
-                    .font(.caption)
-                    .fontWeight(.medium)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("第\(s.currentPeriod)節  \(s.currentSubject)")
+                        .font(.caption)
+                        .fontWeight(.medium)
+                    let meta = [s.currentRoom, s.currentTeacher].filter { !$0.isEmpty }.joined(separator: "・")
+                    if !meta.isEmpty {
+                        Text(meta)
+                            .font(.system(size: 9))
+                            .foregroundStyle(.secondary)
+                    }
+                }
                 Spacer()
                 Text(endTime, style: .time)
                     .font(.caption)
@@ -362,13 +403,15 @@ private struct MinimalView: View {
                 period: "三",
                 subject: "作業系統實習",
                 startTime: Date().addingTimeInterval(-20 * 60),
-                endTime: Date().addingTimeInterval(12 * 60)
+                endTime: Date().addingTimeInterval(12 * 60),
+                room: "", teacher: ""
             ),
             .init(
                 period: "四",
                 subject: "選修跨班",
                 startTime: Date().addingTimeInterval(22 * 60),
-                endTime: Date().addingTimeInterval(70 * 60)
+                endTime: Date().addingTimeInterval(70 * 60),
+                room: "", teacher: ""
             )
         ]
     )
@@ -385,7 +428,8 @@ private struct MinimalView: View {
                 period: "五",
                 subject: "統整數學",
                 startTime: Date().addingTimeInterval(18 * 60),
-                endTime: Date().addingTimeInterval(68 * 60)
+                endTime: Date().addingTimeInterval(68 * 60),
+                room: "", teacher: ""
             )
         ]
     )

@@ -15,6 +15,8 @@ struct ClassScheduleActivityAttributes: ActivityAttributes {
             var subject: String
             var startTime: Date
             var endTime: Date
+            var room: String
+            var teacher: String
         }
 
         var currentPeriod: String

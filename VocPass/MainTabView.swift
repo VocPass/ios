@@ -39,6 +39,7 @@ struct HomePageView: View {
     @EnvironmentObject var apiService: APIService
     @ObservedObject private var vocPassAuth = VocPassAuthService.shared
     @State private var showVocPassLogin = false
+    @State private var showFollowing = false
 
     var body: some View {
         NavigationStack {
@@ -105,6 +106,23 @@ struct HomePageView: View {
                 .buttonStyle(.plain)
                 .padding(.horizontal, 32)
 
+                Button {
+                    showFollowing = true
+                } label: {
+                    Label("不揪", systemImage: "person.2.fill")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.blue.opacity(0.12))
+                        .foregroundStyle(Color.blue)
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                }
+                .padding(.horizontal, 32)
+                .sheet(isPresented: $showFollowing) {
+                    FollowingListView()
+                        .environmentObject(apiService)
+                }
+
                 Spacer()
             }
             .navigationTitle("首頁")
@@ -119,41 +137,72 @@ struct HomePageView: View {
 struct SchoolAffairsView: View {
     @EnvironmentObject var apiService: APIService
     @StateObject private var schoolConfigManager = SchoolConfigManager.shared
+    @State private var showLogin = false
 
     var body: some View {
-        if apiService.isLoggedIn {
-            NavigationStack {
-                List {
-                    NavigationLink(destination: HomeView()) {
-                        Label("獎懲", systemImage: "star.fill")
+        NavigationStack {
+            Group {
+                if schoolConfigManager.selectedSchool == nil {
+                    VStack(spacing: 16) {
+                        Image(systemName: "building.columns.fill")
+                            .font(.system(size: 50))
+                            .foregroundStyle(.secondary)
+                        Text("尚未選擇學校")
+                            .font(.headline)
+                        Button("選擇學校") {
+                            NotificationCenter.default.post(name: .showSchoolPicker, object: nil)
+                        }
+                        .buttonStyle(.borderedProminent)
                     }
-                    NavigationLink(destination: CurriculumView()) {
-                        Label("課表", systemImage: "calendar")
-                    }
-                    NavigationLink(destination: AttendanceView()) {
-                        Label("缺曠", systemImage: "person.badge.clock")
-                    }
-                    NavigationLink(destination: ScoreView()) {
-                        Label("成績", systemImage: "chart.bar.fill")
+                } else {
+                    List {
+                        if !apiService.isLoggedIn {
+                            Section {
+                                Button {
+                                    showLogin = true
+                                } label: {
+                                    HStack {
+                                        Image(systemName: "person.badge.key.fill")
+                                            .foregroundStyle(.blue)
+                                        Text("登入學校帳號以使用校務功能")
+                                            .foregroundStyle(.primary)
+                                        Spacer()
+                                        Image(systemName: "chevron.right")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                        }
+
+                        Section {
+                            NavigationLink(destination: HomeView()) {
+                                Label("獎懲", systemImage: "star.fill")
+                            }
+                            .disabled(!apiService.isLoggedIn)
+                            NavigationLink(destination: CurriculumView()) {
+                                Label("課表", systemImage: "calendar")
+                            }
+                            .disabled(!apiService.isLoggedIn)
+                            NavigationLink(destination: AttendanceView()) {
+                                Label("缺曠", systemImage: "person.badge.clock")
+                            }
+                            .disabled(!apiService.isLoggedIn)
+                            NavigationLink(destination: ScoreView()) {
+                                Label("成績", systemImage: "chart.bar.fill")
+                            }
+                            .disabled(!apiService.isLoggedIn)
+                        }
                     }
                 }
-                .navigationTitle("校務")
             }
-        } else if let school = schoolConfigManager.selectedSchool,
-                  let loginURL = school.loginURL {
-            LoginView(school: school, targetURL: loginURL)
-                .environmentObject(apiService)
-        } else {
-            VStack(spacing: 16) {
-                Image(systemName: "building.columns.fill")
-                    .font(.system(size: 50))
-                    .foregroundStyle(.secondary)
-                Text("尚未選擇學校")
-                    .font(.headline)
-                Button("選擇學校") {
-                    NotificationCenter.default.post(name: .showSchoolPicker, object: nil)
+            .navigationTitle("校務")
+            .navigationDestination(isPresented: $showLogin) {
+                if let school = schoolConfigManager.selectedSchool,
+                   let loginURL = school.loginURL {
+                    LoginView(school: school, targetURL: loginURL)
+                        .environmentObject(apiService)
                 }
-                .buttonStyle(.borderedProminent)
             }
         }
     }

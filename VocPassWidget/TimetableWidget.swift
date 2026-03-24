@@ -22,6 +22,8 @@ private struct WTimetableEntry: Codable {
     let weekday: String
     let period: String
     let subject: String
+    let room: String?
+    let teacher: String?
 }
 
 private struct WTimetableData: Codable {
@@ -37,6 +39,8 @@ struct ScheduleSlot {
     let startTime: Date
     let endTime: Date
     var isCurrent: Bool
+    let room: String
+    let teacher: String
 }
 
 // MARK: - Timeline Entry
@@ -143,23 +147,42 @@ private func loadManualPeriodTimes() -> [String: WPeriodTime] {
     return dict
 }
 
+private struct WCourseExtra: Codable {
+    let room: String
+    let teacher: String
+}
+
+private func loadManualRoomTeacher() -> [String: WCourseExtra] {
+    guard let defaults = UserDefaults(suiteName: kAppGroupID),
+          let data = defaults.data(forKey: "manual_room_teacher"),
+          let dict = try? JSONDecoder().decode([String: WCourseExtra].self, from: data)
+    else { return [:] }
+    return dict
+}
+
 // MARK: - Schedule Computation
 
 private func slotsForDay(
     _ date: Date,
     timetable: WTimetableData,
     manualCurriculum: [String: String],
-    manualPeriodTimes: [String: WPeriodTime]
+    manualPeriodTimes: [String: WPeriodTime],
+    manualRoomTeacher: [String: WCourseExtra] = [:]
 ) -> [ScheduleSlot] {
     let calendar = Calendar.current
     let weekdayNum = calendar.component(.weekday, from: date)
     let todayWeekday = weekdayMap[weekdayNum] ?? ""
 
     // Gather entries for today, applying manual overrides
-    var periodToSubject: [String: String] = [:]
+    var periodToEntry: [String: (subject: String, room: String, teacher: String)] = [:]
     for entry in timetable.entries where entry.weekday == todayWeekday {
         let key = "\(entry.weekday)|\(entry.period)"
-        periodToSubject[entry.period] = manualCurriculum[key] ?? entry.subject
+        let rt  = manualRoomTeacher[key]
+        periodToEntry[entry.period] = (
+            subject: manualCurriculum[key] ?? entry.subject,
+            room:    rt?.room    ?? entry.room    ?? "",
+            teacher: rt?.teacher ?? entry.teacher ?? ""
+        )
     }
     // Manual-only entries (cells added by user that don't exist in API)
     for (key, subject) in manualCurriculum {
@@ -167,19 +190,22 @@ private func slotsForDay(
         guard parts.count == 2,
               String(parts[0]) == todayWeekday else { continue }
         let period = String(parts[1])
-        if periodToSubject[period] == nil {
-            periodToSubject[period] = subject
+        if periodToEntry[period] == nil {
+            let rt = manualRoomTeacher[key]
+            periodToEntry[period] = (subject: subject, room: rt?.room ?? "", teacher: rt?.teacher ?? "")
         }
     }
 
-    return periodToSubject
+    return periodToEntry
         .sorted { (periodOrder[$0.key] ?? 99) < (periodOrder[$1.key] ?? 99) }
-        .compactMap { period, subject in
+        .compactMap { period, info in
             guard let pt = resolvePeriodTime(for: period, timetable: timetable, manualTimes: manualPeriodTimes),
                   let start = parseTime(pt.startTime, on: date, calendar: calendar),
                   let end   = parseTime(pt.endTime,   on: date, calendar: calendar)
             else { return nil }
-            return ScheduleSlot(period: period, subject: subject, startTime: start, endTime: end, isCurrent: false)
+            return ScheduleSlot(period: period, subject: info.subject,
+                                startTime: start, endTime: end, isCurrent: false,
+                                room: info.room, teacher: info.teacher)
         }
 }
 
@@ -200,12 +226,14 @@ private func nextAvailableSlots(
     from date: Date,
     timetable: WTimetableData,
     manualCurriculum: [String: String],
-    manualPeriodTimes: [String: WPeriodTime]
+    manualPeriodTimes: [String: WPeriodTime],
+    manualRoomTeacher: [String: WCourseExtra] = [:]
 ) -> (slots: [ScheduleSlot], day: Date) {
     let cal = Calendar.current
     for offset in 0...6 {
         guard let targetDay = cal.date(byAdding: .day, value: offset, to: cal.startOfDay(for: date)) else { continue }
-        let allSlots = slotsForDay(targetDay, timetable: timetable, manualCurriculum: manualCurriculum, manualPeriodTimes: manualPeriodTimes)
+        let allSlots = slotsForDay(targetDay, timetable: timetable, manualCurriculum: manualCurriculum,
+                                   manualPeriodTimes: manualPeriodTimes, manualRoomTeacher: manualRoomTeacher)
         let visible: [ScheduleSlot]
         if offset == 0 {
             visible = displaySlots(at: date, allSlots: allSlots)
@@ -226,10 +254,10 @@ struct TimetableWidgetProvider: TimelineProvider {
         return TimetableWidgetEntry(
             date: now,
             slots: [
-                ScheduleSlot(period: "三", subject: "資訊科技實習", startTime: now, endTime: now.addingTimeInterval(3000), isCurrent: true),
-                ScheduleSlot(period: "四", subject: "選修跨班",     startTime: now.addingTimeInterval(4200), endTime: now.addingTimeInterval(7200), isCurrent: false),
-                ScheduleSlot(period: "五", subject: "統整數學",     startTime: now.addingTimeInterval(8400), endTime: now.addingTimeInterval(11400), isCurrent: false),
-                ScheduleSlot(period: "六", subject: "體育",         startTime: now.addingTimeInterval(12600), endTime: now.addingTimeInterval(15600), isCurrent: false)
+                ScheduleSlot(period: "三", subject: "資訊科技實習", startTime: now, endTime: now.addingTimeInterval(3000), isCurrent: true, room: "", teacher: ""),
+                ScheduleSlot(period: "四", subject: "選修跨班",     startTime: now.addingTimeInterval(4200), endTime: now.addingTimeInterval(7200), isCurrent: false, room: "", teacher: ""),
+                ScheduleSlot(period: "五", subject: "統整數學",     startTime: now.addingTimeInterval(8400), endTime: now.addingTimeInterval(11400), isCurrent: false, room: "", teacher: ""),
+                ScheduleSlot(period: "六", subject: "體育",         startTime: now.addingTimeInterval(12600), endTime: now.addingTimeInterval(15600), isCurrent: false, room: "", teacher: "")
             ],
             weekdayLabel: "週三",
             hasTimetable: true
@@ -251,10 +279,12 @@ struct TimetableWidgetProvider: TimelineProvider {
 
         let manualCurriculum  = loadManualCurriculum()
         let manualPeriodTimes = loadManualPeriodTimes()
+        let manualRoomTeacher = loadManualRoomTeacher()
         let cal = Calendar.current
 
         // Collect refresh boundaries: today's class start/end + midnight for each upcoming day
-        let todayAllSlots = slotsForDay(now, timetable: timetable, manualCurriculum: manualCurriculum, manualPeriodTimes: manualPeriodTimes)
+        let todayAllSlots = slotsForDay(now, timetable: timetable, manualCurriculum: manualCurriculum,
+                                        manualPeriodTimes: manualPeriodTimes, manualRoomTeacher: manualRoomTeacher)
         var refreshDates: [Date] = [now]
         for slot in todayAllSlots {
             if slot.startTime > now { refreshDates.append(slot.startTime) }
@@ -267,7 +297,8 @@ struct TimetableWidgetProvider: TimelineProvider {
         }
 
         let entries = refreshDates.sorted().map { date -> TimetableWidgetEntry in
-            let (slots, day) = nextAvailableSlots(from: date, timetable: timetable, manualCurriculum: manualCurriculum, manualPeriodTimes: manualPeriodTimes)
+            let (slots, day) = nextAvailableSlots(from: date, timetable: timetable, manualCurriculum: manualCurriculum,
+                                                  manualPeriodTimes: manualPeriodTimes, manualRoomTeacher: manualRoomTeacher)
             return TimetableWidgetEntry(
                 date: date,
                 slots: slots,
@@ -284,7 +315,10 @@ struct TimetableWidgetProvider: TimelineProvider {
         guard let timetable = loadTimetable() else {
             return TimetableWidgetEntry(date: date, slots: [], weekdayLabel: weekdayChineseLabel(for: date), hasTimetable: false)
         }
-        let (slots, day) = nextAvailableSlots(from: date, timetable: timetable, manualCurriculum: loadManualCurriculum(), manualPeriodTimes: loadManualPeriodTimes())
+        let (slots, day) = nextAvailableSlots(from: date, timetable: timetable,
+                                              manualCurriculum: loadManualCurriculum(),
+                                              manualPeriodTimes: loadManualPeriodTimes(),
+                                              manualRoomTeacher: loadManualRoomTeacher())
         return TimetableWidgetEntry(
             date: date,
             slots: slots,
@@ -329,14 +363,21 @@ struct TimetableWidgetEntryView: View {
             }
             Spacer(minLength: 0)
             if let slot = featured {
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 3) {
                     Text(current != nil ? "上課中" : "下一節")
                         .font(.caption2.weight(.medium))
                         .foregroundStyle(current != nil ? .blue : .secondary)
                     Text(slot.subject)
-                        .font(.system(size: 17, weight: .bold))
+                        .font(.system(size: 16, weight: .bold))
                         .lineLimit(2)
                         .minimumScaleFactor(0.8)
+                    let meta = [slot.room, slot.teacher].filter { !$0.isEmpty }.joined(separator: "・")
+                    if !meta.isEmpty {
+                        Text(meta)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
                     if current != nil {
                         Label {
                             Text(slot.endTime, style: .timer)
@@ -348,7 +389,7 @@ struct TimetableWidgetEntryView: View {
                         .foregroundStyle(.orange)
                     } else {
                         Text(slot.startTime, style: .time)
-                            .font(.system(size: 13).monospacedDigit())
+                            .font(.system(size: 12).monospacedDigit())
                             .foregroundStyle(.green)
                     }
                 }
@@ -365,7 +406,7 @@ struct TimetableWidgetEntryView: View {
         VStack(alignment: .leading, spacing: 0) {
             header
                 .padding(.bottom, 7)
-            VStack(spacing: 4) {
+            VStack(spacing: 3) {
                 ForEach(Array(entry.slots.prefix(4).enumerated()), id: \.offset) { _, slot in
                     SlotRowView(slot: slot)
                 }
@@ -426,35 +467,44 @@ private struct SlotRowView: View {
     let slot: ScheduleSlot
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             Text(slot.period)
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(slot.isCurrent ? .white : .secondary)
-                .frame(width: 22, height: 22)
+                .frame(width: 20, height: 20)
                 .background(slot.isCurrent ? Color.blue : Color(.systemFill))
-                .clipShape(RoundedRectangle(cornerRadius: 5))
+                .clipShape(RoundedRectangle(cornerRadius: 4))
 
-            Text(slot.subject)
-                .font(.system(size: 13, weight: slot.isCurrent ? .semibold : .regular))
-                .foregroundStyle(slot.isCurrent ? .primary : Color(.label).opacity(0.7))
-                .lineLimit(1)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(slot.subject)
+                    .font(.system(size: 12, weight: slot.isCurrent ? .semibold : .regular))
+                    .foregroundStyle(slot.isCurrent ? .primary : Color(.label).opacity(0.75))
+                    .lineLimit(1)
+                let meta = [slot.room, slot.teacher].filter { !$0.isEmpty }.joined(separator: "・")
+                if !meta.isEmpty {
+                    Text(meta)
+                        .font(.system(size: 9))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
 
             Spacer(minLength: 0)
 
             if slot.isCurrent {
                 Text(slot.endTime, style: .timer)
-                    .font(.system(size: 11).monospacedDigit())
+                    .font(.system(size: 10).monospacedDigit())
                     .foregroundStyle(.orange)
             } else {
                 Text(slot.startTime, style: .time)
-                    .font(.system(size: 11).monospacedDigit())
+                    .font(.system(size: 10).monospacedDigit())
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 4)
+        .padding(.horizontal, 5)
+        .padding(.vertical, 3)
         .background(slot.isCurrent ? Color.blue.opacity(0.1) : Color.clear)
-        .clipShape(RoundedRectangle(cornerRadius: 7))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 }
 
@@ -481,9 +531,9 @@ struct TimetableWidget: Widget {
     TimetableWidgetEntry(
         date: .now,
         slots: [
-            ScheduleSlot(period: "三", subject: "資訊科技實習", startTime: .now.addingTimeInterval(-10*60), endTime: .now.addingTimeInterval(40*60),  isCurrent: true),
-            ScheduleSlot(period: "四", subject: "選修跨班",     startTime: .now.addingTimeInterval(50*60),  endTime: .now.addingTimeInterval(100*60), isCurrent: false),
-            ScheduleSlot(period: "五", subject: "統整數學",     startTime: .now.addingTimeInterval(120*60), endTime: .now.addingTimeInterval(170*60), isCurrent: false)
+            ScheduleSlot(period: "三", subject: "資訊科技實習", startTime: .now.addingTimeInterval(-10*60), endTime: .now.addingTimeInterval(40*60),  isCurrent: true,  room: "電腦教室", teacher: ""),
+            ScheduleSlot(period: "四", subject: "選修跨班",     startTime: .now.addingTimeInterval(50*60),  endTime: .now.addingTimeInterval(100*60), isCurrent: false, room: "", teacher: ""),
+            ScheduleSlot(period: "五", subject: "統整數學",     startTime: .now.addingTimeInterval(120*60), endTime: .now.addingTimeInterval(170*60), isCurrent: false, room: "", teacher: "")
         ],
         weekdayLabel: "週三",
         hasTimetable: true
@@ -496,10 +546,10 @@ struct TimetableWidget: Widget {
     TimetableWidgetEntry(
         date: .now,
         slots: [
-            ScheduleSlot(period: "三", subject: "資訊科技實習", startTime: .now.addingTimeInterval(-10*60), endTime: .now.addingTimeInterval(40*60),  isCurrent: true),
-            ScheduleSlot(period: "四", subject: "選修跨班",     startTime: .now.addingTimeInterval(50*60),  endTime: .now.addingTimeInterval(100*60), isCurrent: false),
-            ScheduleSlot(period: "五", subject: "統整數學",     startTime: .now.addingTimeInterval(120*60), endTime: .now.addingTimeInterval(170*60), isCurrent: false),
-            ScheduleSlot(period: "六", subject: "體育",         startTime: .now.addingTimeInterval(180*60), endTime: .now.addingTimeInterval(230*60), isCurrent: false)
+            ScheduleSlot(period: "三", subject: "資訊科技實習", startTime: .now.addingTimeInterval(-10*60), endTime: .now.addingTimeInterval(40*60),  isCurrent: true,  room: "電腦教室", teacher: "王老師"),
+            ScheduleSlot(period: "四", subject: "選修跨班",     startTime: .now.addingTimeInterval(50*60),  endTime: .now.addingTimeInterval(100*60), isCurrent: false, room: "", teacher: ""),
+            ScheduleSlot(period: "五", subject: "統整數學",     startTime: .now.addingTimeInterval(120*60), endTime: .now.addingTimeInterval(170*60), isCurrent: false, room: "", teacher: ""),
+            ScheduleSlot(period: "六", subject: "體育",         startTime: .now.addingTimeInterval(180*60), endTime: .now.addingTimeInterval(230*60), isCurrent: false, room: "操場", teacher: "")
         ],
         weekdayLabel: "週三",
         hasTimetable: true
@@ -512,10 +562,10 @@ struct TimetableWidget: Widget {
     TimetableWidgetEntry(
         date: .now,
         slots: [
-            ScheduleSlot(period: "四", subject: "選修跨班",     startTime: .now.addingTimeInterval(8*60),   endTime: .now.addingTimeInterval(58*60),  isCurrent: false),
-            ScheduleSlot(period: "五", subject: "統整數學",     startTime: .now.addingTimeInterval(68*60),  endTime: .now.addingTimeInterval(118*60), isCurrent: false),
-            ScheduleSlot(period: "六", subject: "體育",         startTime: .now.addingTimeInterval(128*60), endTime: .now.addingTimeInterval(178*60), isCurrent: false),
-            ScheduleSlot(period: "七", subject: "英文",         startTime: .now.addingTimeInterval(188*60), endTime: .now.addingTimeInterval(238*60), isCurrent: false)
+            ScheduleSlot(period: "四", subject: "選修跨班",     startTime: .now.addingTimeInterval(8*60),   endTime: .now.addingTimeInterval(58*60),  isCurrent: false, room: "", teacher: ""),
+            ScheduleSlot(period: "五", subject: "統整數學",     startTime: .now.addingTimeInterval(68*60),  endTime: .now.addingTimeInterval(118*60), isCurrent: false, room: "", teacher: ""),
+            ScheduleSlot(period: "六", subject: "體育",         startTime: .now.addingTimeInterval(128*60), endTime: .now.addingTimeInterval(178*60), isCurrent: false, room: "操場", teacher: ""),
+            ScheduleSlot(period: "七", subject: "英文",         startTime: .now.addingTimeInterval(188*60), endTime: .now.addingTimeInterval(238*60), isCurrent: false, room: "", teacher: "")
         ],
         weekdayLabel: "週三",
         hasTimetable: true
