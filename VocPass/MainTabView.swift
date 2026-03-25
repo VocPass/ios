@@ -428,6 +428,7 @@ struct SchoolSettingsView: View {
     @State private var autoStart = CacheService.shared.autoStartDynamicIsland
     @State private var minutesBefore = CacheService.shared.autoStartMinutesBefore
     @State private var weeksPerSemester = CacheService.shared.weeksPerSemester
+    @State private var periodsPerDay = CacheService.shared.periodsPerDay
 
     var body: some View {
         List {
@@ -528,6 +529,25 @@ struct SchoolSettingsView: View {
                             .foregroundStyle(.red)
                     }
                 }
+            }
+
+            Section {
+                Stepper(value: $periodsPerDay, in: 1...12) {
+                    HStack {
+                        Label("每天節數", systemImage: "list.number")
+                        Spacer()
+                        Text("\(periodsPerDay) 節")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .onChange(of: periodsPerDay) { _, newValue in
+                    CacheService.shared.periodsPerDay = newValue
+                }
+            } header: {
+                Text("課表")
+            } footer: {
+                Text("課表固定顯示的節數，即使該節無課也會顯示。預設 7 節。")
+                    .font(.caption)
             }
 
             Section {

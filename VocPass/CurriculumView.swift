@@ -29,27 +29,29 @@ struct CurriculumView: View {
     @State private var apiPeriodTimes: [String: PeriodTime] = CacheService.shared.getCachedTimetable()?.periodTimes ?? [:]
     @State private var manualPeriodTimes: [String: PeriodTime] = CacheService.shared.manualPeriodTimes
     @State private var editingPeriod: String? = nil
+    @State private var periodsPerDay: Int = CacheService.shared.periodsPerDay
 
     private let weekdays = ["一", "二", "三", "四", "五"]
     private let periodOrder = ["早讀", "一", "二", "三", "四", "五", "六", "七", "八", "九", "十",
                                 "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]
-    private let defaultPeriods = ["一", "二", "三", "四", "五", "六", "七", "八"]
 
     private var periods: [String] {
-        var all: [String] = []
-        all += curriculum.values.flatMap { $0.schedule.map { $0.period } }
+        let numericPeriods = ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十",
+                              "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]
+
+        // Collect all periods that actually have data
+        var allDataPeriods = Set(curriculum.values.flatMap { $0.schedule.map { $0.period } })
         for key in manualCurriculum.keys {
             let parts = key.split(separator: "|")
-            if parts.count == 2 { all.append(String(parts[1])) }
+            if parts.count == 2 { allDataPeriods.insert(String(parts[1])) }
         }
-        let unique = Array(Set(all)).filter { !$0.isEmpty }
-        if unique.isEmpty { return defaultPeriods }
-        return unique.sorted { a, b in
-            let ia = periodOrder.firstIndex(of: a) ?? Int.max
-            let ib = periodOrder.firstIndex(of: b) ?? Int.max
-            if ia != Int.max || ib != Int.max { return ia < ib }
-            return (Int(a) ?? 0) < (Int(b) ?? 0)
-        }
+
+        var result: [String] = []
+        // Include 早讀 only if there's actual data for it
+        if allDataPeriods.contains("早讀") { result.append("早讀") }
+        // Always show exactly periodsPerDay numeric periods
+        result += Array(numericPeriods.prefix(periodsPerDay))
+        return result
     }
 
     var body: some View {
@@ -96,9 +98,14 @@ struct CurriculumView: View {
                             curriculumGrid
                                 .padding(.horizontal)
 
-                            Text("點擊格子可手動輸入科目")
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
+                            VStack(spacing: 4) {
+                                Text("點擊格子可手動輸入科目")
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                                Text("可至「設定 › 學校設定」調整每天顯示節數（目前 \(periodsPerDay) 節）")
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                            }
                         }
                         .padding(.vertical)
                     }
@@ -201,6 +208,9 @@ struct CurriculumView: View {
         }
         .task {
             await loadData()
+        }
+        .onAppear {
+            periodsPerDay = CacheService.shared.periodsPerDay
         }
     }
 

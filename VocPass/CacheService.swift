@@ -40,6 +40,17 @@ class CacheService {
         case savedCookies = "saved_cookies"
         case vocPassCookies = "vocpass_auth_cookies"
         case weeksPerSemester = "weeks_per_semester"
+        case periodsPerDay = "periods_per_day"
+    }
+
+    // MARK: - 課表顯示節數
+
+    var periodsPerDay: Int {
+        get {
+            let v = userDefaults.integer(forKey: CacheKey.periodsPerDay.rawValue)
+            return v == 0 ? 7 : v
+        }
+        set { userDefaults.set(newValue, forKey: CacheKey.periodsPerDay.rawValue) }
     }
 
     // MARK: - 學期週數設定
