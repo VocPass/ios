@@ -495,10 +495,14 @@ private struct SlotRowView: View {
                 Text(slot.endTime, style: .timer)
                     .font(.system(size: 10).monospacedDigit())
                     .foregroundStyle(.orange)
+                    .multilineTextAlignment(.trailing)
+                    .frame(minWidth: 36, alignment: .trailing)
             } else {
                 Text(slot.startTime, style: .time)
                     .font(.system(size: 10).monospacedDigit())
                     .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.trailing)
+                    .frame(minWidth: 36, alignment: .trailing)
             }
         }
         .padding(.horizontal, 5)
