@@ -692,16 +692,19 @@ struct CurriculumShareSheet: View {
                                     .foregroundStyle(isSharing ? .green : .secondary)
                             }
                             Spacer()
-                            if isLoadingStatus || isUpdating {
-                                ProgressView()
-                                    .scaleEffect(0.9)
-                            } else {
-                                Toggle("", isOn: $isSharing)
-                                    .labelsHidden()
-                                    .onChange(of: isSharing) { _, newValue in
-                                        Task { await updateSharing(newValue) }
+                            Toggle("", isOn: $isSharing)
+                                .labelsHidden()
+                                .disabled(isLoadingStatus || isUpdating)
+                                .opacity(isLoadingStatus || isUpdating ? 0 : 1)
+                                .onChange(of: isSharing) { _, newValue in
+                                    guard !isLoadingStatus else { return }
+                                    Task { await updateSharing(newValue) }
+                                }
+                                .overlay {
+                                    if isLoadingStatus || isUpdating {
+                                        ProgressView().scaleEffect(0.9)
                                     }
-                            }
+                                }
                         }
                         .padding(14)
                         .background(Color(.secondarySystemBackground))
