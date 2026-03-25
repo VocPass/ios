@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import PhotosUI
 
 struct MainTabView: View {
     @EnvironmentObject var apiService: APIService
@@ -191,7 +192,7 @@ struct SchoolAffairsView: View {
                             NavigationLink(destination: CurriculumView()) {
                                 Label("課表", systemImage: "calendar")
                             }
-                            .disabled(!apiService.isLoggedIn)
+                            .disabled(!apiService.isLoggedIn && CacheService.shared.getCachedTimetable() == nil)
                             NavigationLink(destination: AttendanceView()) {
                                 Label("缺曠", systemImage: "person.badge.clock")
                             }
@@ -367,6 +368,12 @@ struct VocPassAccountSettingsView: View {
                         }
                     }
                     .padding(.vertical, 4)
+                }
+
+                Section {
+                    NavigationLink(destination: EditProfileView()) {
+                        Label("編輯個人資料", systemImage: "pencil")
+                    }
                 }
 
                 Section {
@@ -572,6 +579,313 @@ struct SchoolSettingsView: View {
         }
         .navigationTitle("學校設定")
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+private struct IdentifiableImage: Identifiable {
+    let id = UUID()
+    let image: UIImage
+}
+
+// MARK: - 編輯個人資料
+struct EditProfileView: View {
+    @ObservedObject private var vocPassAuth = VocPassAuthService.shared
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var name: String = ""
+    @State private var username: String = ""
+    @State private var pickerItem: PhotosPickerItem?
+    @State private var avatarImage: UIImage?
+    @State private var imageToCrop: IdentifiableImage?
+    @State private var isLoadingImage = false
+    @State private var isSaving = false
+    @State private var errorMessage: String?
+
+    var body: some View {
+        List {
+            Section {
+                HStack {
+                    Spacer()
+                    PhotosPicker(selection: $pickerItem, matching: .images) {
+                        ZStack(alignment: .bottomTrailing) {
+                            Group {
+                                if let avatarImage {
+                                    Image(uiImage: avatarImage)
+                                        .resizable()
+                                        .scaledToFill()
+                                } else if let url = vocPassAuth.currentUser?.avatarURL {
+                                    CachedAsyncImage(url: url) { phase in
+                                        switch phase {
+                                        case .success(let image):
+                                            image.resizable().scaledToFill()
+                                        default:
+                                            Image(systemName: "person.circle.fill")
+                                                .resizable()
+                                                .foregroundStyle(.blue)
+                                        }
+                                    }
+                                } else {
+                                    Image(systemName: "person.circle.fill")
+                                        .resizable()
+                                        .foregroundStyle(.blue)
+                                }
+                            }
+                            .frame(width: 80, height: 80)
+                            .clipShape(Circle())
+
+                            Image(systemName: "camera.circle.fill")
+                                .font(.system(size: 24))
+                                .foregroundStyle(.white, .blue)
+                                .offset(x: 4, y: 4)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    Spacer()
+                }
+                .padding(.vertical, 8)
+                .listRowBackground(Color.clear)
+            }
+
+            Section("基本資料") {
+                HStack {
+                    Text("名稱")
+                        .foregroundStyle(.secondary)
+                    TextField("顯示名稱", text: $name)
+                        .multilineTextAlignment(.trailing)
+                }
+                HStack {
+                    Text("帳號")
+                        .foregroundStyle(.secondary)
+                    TextField("使用者名稱", text: $username)
+                        .multilineTextAlignment(.trailing)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                }
+            }
+
+            if let errorMessage {
+                Section {
+                    Text(errorMessage)
+                        .foregroundStyle(.red)
+                        .font(.callout)
+                }
+            }
+        }
+        .navigationTitle("編輯個人資料")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button("儲存") { save() }
+                    .disabled(isSaving)
+            }
+        }
+        .onChange(of: pickerItem) { _, item in
+            guard let item else { return }
+            isLoadingImage = true
+            errorMessage = nil
+            Task {
+                defer { isLoadingImage = false }
+                do {
+                    guard let data = try await item.loadTransferable(type: Data.self) else {
+                        errorMessage = "無法載入圖片"
+                        return
+                    }
+                    guard let uiImage = UIImage(data: data) else {
+                        errorMessage = "圖片格式不支援"
+                        return
+                    }
+                    imageToCrop = IdentifiableImage(image: uiImage)
+                } catch {
+                    errorMessage = "圖片下載失敗，請確認網路連線後再試"
+                }
+            }
+        }
+        .fullScreenCover(item: $imageToCrop) { item in
+            CropImageView(image: item.image) { cropped in
+                avatarImage = cropped
+            }
+        }
+        .onAppear {
+            if let user = vocPassAuth.currentUser {
+                name = user.name
+                username = user.username
+            }
+        }
+        .disabled(isSaving || isLoadingImage)
+        .overlay {
+            if isSaving || isLoadingImage {
+                ProgressView(isLoadingImage ? "載入圖片中…" : "")
+                    .padding(20)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+            }
+        }
+    }
+
+    private func save() {
+        guard let user = vocPassAuth.currentUser else { return }
+        let newName = name.trimmingCharacters(in: .whitespaces)
+        let newUsername = username.trimmingCharacters(in: .whitespaces)
+
+        let changedName: String? = newName != user.name ? newName : nil
+        let changedUsername: String? = newUsername != user.username ? newUsername : nil
+        let avatarData: Data? = avatarImage.flatMap { $0.jpegData(compressionQuality: 0.8) }
+
+        guard changedName != nil || changedUsername != nil || avatarData != nil else {
+            dismiss()
+            return
+        }
+
+        isSaving = true
+        errorMessage = nil
+
+        Task {
+            do {
+                try await vocPassAuth.updateUser(
+                    name: changedName,
+                    username: changedUsername,
+                    avatarData: avatarData
+                )
+                await MainActor.run { dismiss() }
+            } catch {
+                await MainActor.run {
+                    errorMessage = error.localizedDescription
+                    isSaving = false
+                }
+            }
+        }
+    }
+}
+
+// MARK: - 1:1 裁切視圖
+struct CropImageView: View {
+    let image: UIImage
+    let onCrop: (UIImage) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var scale: CGFloat = 1.0
+    @State private var lastScale: CGFloat = 1.0
+    @State private var offset: CGSize = .zero
+    @State private var lastOffset: CGSize = .zero
+    @State private var displaySize: CGFloat = 300
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color.black.ignoresSafeArea()
+
+                GeometryReader { geo in
+                    let size = min(geo.size.width, geo.size.height)
+                    ZStack {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: size, height: size)
+                            .scaleEffect(scale, anchor: .center)
+                            .offset(offset)
+                            .clipped()
+
+                        cropGrid(size: size)
+                    }
+                    .frame(width: geo.size.width, height: geo.size.height)
+                    .contentShape(Rectangle())
+                    .gesture(
+                        SimultaneousGesture(
+                            MagnificationGesture()
+                                .onChanged { value in
+                                    scale = max(1.0, lastScale * value)
+                                }
+                                .onEnded { _ in
+                                    lastScale = scale
+                                    let clamped = clampedOffset(offset, size: size)
+                                    withAnimation(.spring(duration: 0.2)) { offset = clamped }
+                                    lastOffset = clamped
+                                },
+                            DragGesture()
+                                .onChanged { value in
+                                    offset = clampedOffset(
+                                        CGSize(width: lastOffset.width + value.translation.width,
+                                               height: lastOffset.height + value.translation.height),
+                                        size: size
+                                    )
+                                }
+                                .onEnded { _ in lastOffset = offset }
+                        )
+                    )
+                    .onAppear { displaySize = size }
+                    .onChange(of: geo.size) { _, s in displaySize = min(s.width, s.height) }
+                }
+            }
+            .navigationTitle("裁切照片")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                        .foregroundStyle(.white)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") {
+                        if let cropped = cropImage(displaySize: displaySize) {
+                            onCrop(cropped)
+                        }
+                        dismiss()
+                    }
+                    .foregroundStyle(.white)
+                    .fontWeight(.semibold)
+                }
+            }
+            .toolbarBackground(.black, for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+        }
+    }
+
+    @ViewBuilder
+    private func cropGrid(size: CGFloat) -> some View {
+        ZStack {
+            Path { path in
+                path.move(to: CGPoint(x: size / 3, y: 0))
+                path.addLine(to: CGPoint(x: size / 3, y: size))
+                path.move(to: CGPoint(x: 2 * size / 3, y: 0))
+                path.addLine(to: CGPoint(x: 2 * size / 3, y: size))
+                path.move(to: CGPoint(x: 0, y: size / 3))
+                path.addLine(to: CGPoint(x: size, y: size / 3))
+                path.move(to: CGPoint(x: 0, y: 2 * size / 3))
+                path.addLine(to: CGPoint(x: size, y: 2 * size / 3))
+            }
+            .stroke(Color.white.opacity(0.35), lineWidth: 0.5)
+
+            Rectangle()
+                .strokeBorder(Color.white, lineWidth: 1.5)
+        }
+        .frame(width: size, height: size)
+        .allowsHitTesting(false)
+    }
+
+    private func clampedOffset(_ offset: CGSize, size: CGFloat) -> CGSize {
+        let shortSide = min(image.size.width, image.size.height)
+        let totalScale = (size / shortSide) * scale
+        let maxX = max(0, (image.size.width * totalScale - size) / 2)
+        let maxY = max(0, (image.size.height * totalScale - size) / 2)
+        return CGSize(
+            width: max(-maxX, min(maxX, offset.width)),
+            height: max(-maxY, min(maxY, offset.height))
+        )
+    }
+
+    private func cropImage(displaySize: CGFloat) -> UIImage? {
+        let outputSize: CGFloat = 512
+        let factor = outputSize / displaySize
+        let shortSide = min(image.size.width, image.size.height)
+        let totalScale = (displaySize / shortSide) * scale
+        let displayW = image.size.width * totalScale
+        let displayH = image.size.height * totalScale
+        let imgX = displaySize / 2 - displayW / 2 + offset.width
+        let imgY = displaySize / 2 - displayH / 2 + offset.height
+
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: outputSize, height: outputSize))
+        return renderer.image { _ in
+            image.draw(in: CGRect(x: imgX * factor, y: imgY * factor,
+                                  width: displayW * factor, height: displayH * factor))
+        }
     }
 }
 

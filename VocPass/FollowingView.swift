@@ -12,6 +12,7 @@ struct FollowingListView: View {
     @State private var followed: [String] = CacheService.shared.followedUsernames
     @State private var showAddAlert = false
     @State private var newUsername = ""
+    @State private var userProfiles: [String: VocPassPublicUser] = [:]
 
     var body: some View {
         NavigationStack {
@@ -25,10 +26,46 @@ struct FollowingListView: View {
                 } else {
                     ForEach(followed, id: \.self) { username in
                         NavigationLink {
-                            SharedCurriculumView(username: username)
+                            SharedCurriculumView(username: username, publicProfile: userProfiles[username])
                                 .environmentObject(apiService)
                         } label: {
-                            Label("@\(username)", systemImage: "person.fill")
+                            HStack(spacing: 10) {
+                                let profile = userProfiles[username]
+                                if let avatarURL = profile?.avatarURL {
+                                    CachedAsyncImage(url: avatarURL) { phase in
+                                        switch phase {
+                                        case .success(let image):
+                                            image
+                                                .resizable()
+                                                .scaledToFill()
+                                                .frame(width: 36, height: 36)
+                                                .clipShape(Circle())
+                                        default:
+                                            Image(systemName: "person.circle.fill")
+                                                .font(.system(size: 36))
+                                                .foregroundStyle(.blue)
+                                        }
+                                    }
+                                } else {
+                                    Image(systemName: "person.circle.fill")
+                                        .font(.system(size: 36))
+                                        .foregroundStyle(.blue)
+                                }
+                                VStack(alignment: .leading, spacing: 2) {
+                                    if let name = profile?.name, !name.isEmpty {
+                                        Text(name)
+                                            .font(.body)
+                                    }
+                                    Text("@\(username)")
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                        .task(id: username) {
+                            if userProfiles[username] == nil {
+                                userProfiles[username] = try? await VocPassAuthService.shared.fetchUser(username: username)
+                            }
                         }
                     }
                     .onDelete { indexSet in
@@ -71,12 +108,16 @@ struct FollowingListView: View {
 
 struct SharedCurriculumView: View {
     let username: String
+    var publicProfile: VocPassPublicUser? = nil
 
     @EnvironmentObject var apiService: APIService
     @State private var curriculum: [String: CourseInfo] = [:]
     @State private var periodTimes: [String: PeriodTime] = [:]
     @State private var isLoading = true
     @State private var errorMessage: String?
+    @State private var fetchedProfile: VocPassPublicUser?
+
+    private var displayProfile: VocPassPublicUser? { fetchedProfile ?? publicProfile }
 
     private let weekdays = ["一", "二", "三", "四", "五"]
     private let periodOrder = ["早讀", "一", "二", "三", "四", "五", "六", "七", "八", "九", "十",
@@ -123,7 +164,32 @@ struct SharedCurriculumView: View {
         }
         .navigationTitle("@\(username) 的課表")
         .navigationBarTitleDisplayMode(.inline)
-        .task { await load() }
+        .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                if let avatarURL = displayProfile?.avatarURL {
+                    CachedAsyncImage(url: avatarURL) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: 30, height: 30)
+                                .clipShape(Circle())
+                        default:
+                            Image(systemName: "person.circle.fill")
+                                .font(.system(size: 30))
+                                .foregroundStyle(.blue)
+                        }
+                    }
+                }
+            }
+        }
+        .task {
+            await load()
+            if fetchedProfile == nil && publicProfile == nil {
+                fetchedProfile = try? await VocPassAuthService.shared.fetchUser(username: username)
+            }
+        }
     }
 
     // MARK: - Grid
