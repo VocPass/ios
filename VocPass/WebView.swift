@@ -487,6 +487,32 @@ struct WebView: UIViewRepresentable {
                             }
                         }
 
+                        // Extract userInfo div content and add as cookie
+                        let userInfoPattern = #"<div[^>]*id="userInfo"[^>]*>([^<]*)</div>"#
+                        if let regex = try? NSRegularExpression(pattern: userInfoPattern),
+                           let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+                           match.numberOfRanges > 1,
+                           let range = Range(match.range(at: 1), in: html) {
+                            let userInfoValue = String(html[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+                            if !userInfoValue.isEmpty,
+                               let host = URL(string: currentURL)?.host {
+                                if let userInfoCookie = HTTPCookie(properties: [
+                                    .domain: host,
+                                    .path: "/",
+                                    .name: "userInfo",
+                                    .value: userInfoValue,
+                                    .secure: "TRUE",
+                                    .expires: Date().addingTimeInterval(3600 * 24 * 30)
+                                ]) {
+                                    if !finalCookies.contains(where: { $0.name == "userInfo" }) {
+                                        finalCookies.append(userInfoCookie)
+                                        webView.configuration.websiteDataStore.httpCookieStore.setCookie(userInfoCookie)
+                                        print("✅ [WebView] 已從 userInfo div 提取並加入 cookie: \(userInfoValue.prefix(30))...")
+                                    }
+                                }
+                            }
+                        }
+
                         print("🍪 [WebView] 登入成功頁面 cookies 數量: \(finalCookies.count)")
                         for cookie in finalCookies {
                             print("  - \(cookie.name): \(cookie.value.prefix(30))...")
