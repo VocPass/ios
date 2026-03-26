@@ -7,6 +7,7 @@
 
 import SwiftUI
 import PhotosUI
+import SafariServices
 
 struct MainTabView: View {
     @EnvironmentObject var apiService: APIService
@@ -139,6 +140,7 @@ struct SchoolAffairsView: View {
     @EnvironmentObject var apiService: APIService
     @StateObject private var schoolConfigManager = SchoolConfigManager.shared
     @State private var showLogin = false
+    @State private var showTelephone = false
 
     var body: some View {
         NavigationStack {
@@ -176,10 +178,28 @@ struct SchoolAffairsView: View {
                             }
                         }
 
-                        if schoolConfigManager.selectedSchool?.notice != nil {
+                        let hasNotice = schoolConfigManager.selectedSchool?.notice != nil
+                        let hasTelephone = schoolConfigManager.selectedSchool?.telephone.flatMap(URL.init) != nil
+                        if hasNotice || hasTelephone {
                             Section {
-                                NavigationLink(destination: SchoolNoticeView().environmentObject(apiService)) {
-                                    Label("公告", systemImage: "bell.fill")
+                                if hasNotice {
+                                    NavigationLink(destination: SchoolNoticeView().environmentObject(apiService)) {
+                                        Label("公告", systemImage: "bell.fill")
+                                    }
+                                }
+                                if hasTelephone {
+                                    Button {
+                                        showTelephone = true
+                                    } label: {
+                                        Label {
+                                            Text("分機查詢")
+                                                .foregroundStyle(.primary)
+                                        } icon: {
+                                            Image(systemName: "phone.fill")
+                                                .foregroundStyle(.blue)
+                                        }
+                                    }
+                                    .buttonStyle(.plain)
                                 }
                             }
                         }
@@ -215,6 +235,13 @@ struct SchoolAffairsView: View {
             }
             .onChange(of: apiService.isLoggedIn) { _, loggedIn in
                 if loggedIn { showLogin = false }
+            }
+            .sheet(isPresented: $showTelephone) {
+                if let urlString = schoolConfigManager.selectedSchool?.telephone,
+                   let url = URL(string: urlString) {
+                    TelephoneDirectoryView(url: url)
+                        .ignoresSafeArea()
+                }
             }
         }
     }
@@ -600,6 +627,17 @@ struct SchoolSettingsView: View {
         .navigationTitle("學校設定")
         .navigationBarTitleDisplayMode(.inline)
     }
+}
+
+// MARK: - 分機查詢
+struct TelephoneDirectoryView: UIViewControllerRepresentable {
+    let url: URL
+
+    func makeUIViewController(context: Context) -> SFSafariViewController {
+        SFSafariViewController(url: url)
+    }
+
+    func updateUIViewController(_ uiViewController: SFSafariViewController, context: Context) {}
 }
 
 private struct IdentifiableImage: Identifiable {

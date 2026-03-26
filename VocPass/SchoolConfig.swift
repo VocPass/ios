@@ -24,6 +24,7 @@ struct SchoolConfig: Codable, Identifiable {
     let beta: Bool
     let api: String
     let notice: NoticeConfig?
+    let telephone: String?
     let url: URLConfig
     let login: LoginConfig
     let route: RouteConfig
@@ -34,6 +35,7 @@ struct SchoolConfig: Codable, Identifiable {
          beta: Bool = false,
          api: String,
          notice: NoticeConfig? = nil,
+         telephone: String? = nil,
          url: URLConfig,
          login: LoginConfig,
          route: RouteConfig) {
@@ -43,6 +45,7 @@ struct SchoolConfig: Codable, Identifiable {
         self.beta = beta
         self.api = api
         self.notice = notice
+        self.telephone = telephone
         self.url = url
         self.login = login
         self.route = route
@@ -56,6 +59,7 @@ struct SchoolConfig: Codable, Identifiable {
         beta = try container.decodeIfPresent(Bool.self, forKey: .beta) ?? false
         api = try container.decode(String.self, forKey: .api)
         notice = try container.decodeIfPresent(NoticeConfig.self, forKey: .notice)
+        telephone = try container.decodeIfPresent(String.self, forKey: .telephone)
         url = try container.decode(URLConfig.self, forKey: .url)
         login = try container.decode(LoginConfig.self, forKey: .login)
         route = try container.decode(RouteConfig.self, forKey: .route)
@@ -68,6 +72,7 @@ struct SchoolConfig: Codable, Identifiable {
         case beta
         case api
         case notice
+        case telephone
         case url
         case login
         case route
@@ -330,6 +335,7 @@ class SchoolConfigManager: ObservableObject {
                             beta: config.beta,
                             api: config.api,
                             notice: config.notice,
+                            telephone: config.telephone,
                             url: config.url,
                             login: config.login,
                             route: config.route
@@ -388,6 +394,7 @@ class SchoolConfigManager: ObservableObject {
                     beta: config.beta,
                     api: config.api,
                     notice: config.notice,
+                    telephone: config.telephone,
                     url: config.url,
                     login: config.login,
                     route: config.route
@@ -514,6 +521,7 @@ private struct SchoolConfigData: Codable {
     let beta: Bool
     let api: String
     let notice: NoticeConfig?
+    let telephone: String?
     let url: URLConfig
     let login: LoginConfig
     let route: RouteConfig
@@ -524,6 +532,7 @@ private struct SchoolConfigData: Codable {
         vision = try container.decode(String.self, forKey: .vision)
         api = try container.decode(String.self, forKey: .api)
         notice = try container.decodeIfPresent(NoticeConfig.self, forKey: .notice)
+        telephone = try container.decodeIfPresent(String.self, forKey: .telephone)
         url = try container.decode(URLConfig.self, forKey: .url)
         login = try container.decode(LoginConfig.self, forKey: .login)
         route = try container.decode(RouteConfig.self, forKey: .route)
@@ -546,6 +555,7 @@ private struct SchoolConfigData: Codable {
         case beta
         case api
         case notice
+        case telephone
         case url
         case login
         case route
