@@ -1157,7 +1157,7 @@ struct RestaurantMenu: Identifiable, Decodable {
 
     enum CodingKeys: String, CodingKey {
         case id, menu, restaurant
-        case user = "uesr"   // server typo
+        case user
     }
 }
 
