@@ -802,23 +802,20 @@ struct ExamMenuItem: Identifiable, Codable, Hashable {
     let id = UUID()
     let name: String
     let url: String       // file_name (e.g. grade_chart_all.asp)
-    let fullURL: String   // 完整對學校伺服器的 URL
 
     enum CodingKeys: String, CodingKey {
         case name, url
     }
 
-    init(name: String, url: String, fullURL: String) {
-        self.name    = name
-        self.url     = url
-        self.fullURL = fullURL
+    init(name: String, url: String) {
+        self.name = name
+        self.url  = url
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        name    = (try? c.decode(String.self, forKey: .name)) ?? ""
-        url     = (try? c.decode(String.self, forKey: .url))  ?? ""
-        fullURL = ""
+        name = (try? c.decode(String.self, forKey: .name)) ?? ""
+        url  = (try? c.decode(String.self, forKey: .url))  ?? ""
     }
 }
 
@@ -935,6 +932,7 @@ struct StudentInfo: Codable {
         case class_name
         case classNo = "class_no"
         case homeroom
+        case classField = "class"
     }
 
     init(studentId: String = "", name: String = "", className: String = "") {
@@ -959,15 +957,23 @@ struct StudentInfo: Codable {
             ?? (try? alt.decodeLossyString(forKey: .class_name))
             ?? (try? alt.decodeLossyString(forKey: .classNo))
             ?? (try? alt.decodeLossyString(forKey: .homeroom))
+            ?? (try? alt.decodeLossyString(forKey: .classField))
             ?? ""
     }
 }
 
 struct ExamScoreData: Codable {
-    var studentInfo: StudentInfo = StudentInfo(studentId: "", name: "", className: "")
+    var studentInfo: StudentInfo = StudentInfo()
     var examInfo: String = ""
     var subjects: [ExamSubjectScore] = []
-    var summary: ExamSummary = ExamSummary(totalScore: "", averageScore: "", classRank: "", departmentRank: "")
+    var summary: ExamSummary = ExamSummary()
+
+    enum CodingKeys: String, CodingKey {
+        case studentInfo = "student_info"
+        case examInfo = "exam_info"
+        case subjects
+        case summary
+    }
 }
 
 // MARK: - 學期資訊

@@ -218,7 +218,11 @@ struct SchoolAffairsView: View {
                             }
                             .disabled(!apiService.isLoggedIn)
                             NavigationLink(destination: ScoreView()) {
-                                Label("成績", systemImage: "chart.bar.fill")
+                                Label("學年成績", systemImage: "chart.bar.fill")
+                            }
+                            .disabled(!apiService.isLoggedIn)
+                            NavigationLink(destination: ExamScoreView()) {
+                                Label("考試成績", systemImage: "list.bullet.clipboard")
                             }
                             .disabled(!apiService.isLoggedIn)
                         }

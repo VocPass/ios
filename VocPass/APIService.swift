@@ -74,16 +74,6 @@ class APIService: ObservableObject {
         }.joined(separator: "; ")
     }
 
-    private var headers: [String: String] {
-        [
-            "accept-encoding": "gzip, deflate, br",
-            "accept-language": "zh-TW,zh;q=0.9,en;q=0.8",
-            "cache-control": "no-cache",
-            "cookie": cookieString,
-            "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148"
-        ]
-    }
-
     private func extractAPIErrorPayload(from data: Data) -> APIErrorPayload? {
         return try? JSONDecoder().decode(APIErrorPayload.self, from: data)
     }
@@ -97,7 +87,7 @@ class APIService: ObservableObject {
     }
 
     // MARK: - 以代理 API GET（cookies 直接放 Header）
-    private func proxyGetData(path: String,
+    func proxyGetData(path: String,
                               extraQueryItems: [URLQueryItem] = []) async throws -> Data {
         let school = try selectedSchool()
 
@@ -178,7 +168,7 @@ class APIService: ObservableObject {
         }
     }
 
-    private func proxyGet<T: Decodable>(path: String,
+    func proxyGet<T: Decodable>(path: String,
                                         extraQueryItems: [URLQueryItem] = []) async throws -> APIResponse<T> {
         let data = try await proxyGetData(path: path, extraQueryItems: extraQueryItems)
 
@@ -222,56 +212,6 @@ class APIService: ObservableObject {
             print("❌ [API] Decode failed [\(path)]: \(error)")
             throw error
         }
-    }
-
-    // MARK: - 向學校伺服器 GET HTML
-    private func request(url: String) async throws -> String {
-        guard SchoolConfigManager.shared.hasSelectedSchool else {
-            print("❌ [API] 未選擇學校")
-            throw APIError.noSchoolSelected
-        }
-
-        guard let requestURL = URL(string: url) else {
-            print("❌ [API] Invalid URL: \(url)")
-            throw URLError(.badURL)
-        }
-
-        print("🌐 [API] GET: \(url)")
-        print("🍪 [API] Cookies: \(cookieString)...")
-
-        var req = URLRequest(url: requestURL)
-        req.httpMethod = "GET"
-        for (key, value) in headers {
-            req.setValue(value, forHTTPHeaderField: key)
-        }
-
-        let (data, response) = try await urlSession.data(for: req)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            print("❌ [API] No HTTP response")
-            throw URLError(.badServerResponse)
-        }
-
-        print("📡 [API] Status: \(httpResponse.statusCode)")
-
-        guard httpResponse.statusCode == 200 else {
-            print("❌ [API] Bad status code: \(httpResponse.statusCode)")
-            throw URLError(.badServerResponse)
-        }
-
-        if let html = String(data: data, encoding: .utf8) {
-            print("✅ [API] Response length: \(html.count) chars (UTF-8)")
-            return html
-        } else if let html = String(data: data, encoding: String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.big5.rawValue)))) {
-            print("✅ [API] Response length: \(html.count) chars (Big5)")
-            return html
-        }
-
-        throw URLError(.cannotDecodeContentData)
-    }
-
-    private func needsRelogin(_ html: String) -> Bool {
-        return html.contains("重新登入")
     }
 
     // MARK: - 從系統日期推算目前學期
@@ -544,39 +484,6 @@ class APIService: ObservableObject {
             extraQueryItems: [URLQueryItem(name: "semester", value: "\(semester)")]
         )
         return response.data
-    }
-
-    // MARK: - 考試成績選單
-    func fetchExamMenu(forceRefresh: Bool = false) async throws -> [ExamMenuItem] {
-        if !forceRefresh, let cached = CacheService.shared.getCachedExamMenu() {
-            return cached
-        }
-
-        let school = try selectedSchool()
-
-        let response: APIResponse<[ExamMenuItem]> = try await proxyGet(path: "exam_menu")
-        guard let examResultsRoute = school.route.examResults else {
-            throw APIError.featureNotSupported
-        }
-        let items = response.data.map { item -> ExamMenuItem in
-            let path = examResultsRoute.replacingOccurrences(of: "{file_name}", with: item.url)
-            return ExamMenuItem(name: item.name, url: item.url, fullURL: school.api + path)
-        }
-
-        CacheService.shared.cacheExamMenu(items)
-        return items
-    }
-
-    // MARK: - 考試成績詳情（保留本地爬蟲）
-    func fetchExamScore(url: String) async throws -> ExamScoreData {
-        let html = try await request(url: url)
-
-        if needsRelogin(html) {
-            await MainActor.run { self.isLoggedIn = false }
-            throw APIError.sessionExpired
-        }
-
-        return HTMLParser.parseExamScores(html: html)
     }
 
     // MARK: - 缺曠統計（結合課表）

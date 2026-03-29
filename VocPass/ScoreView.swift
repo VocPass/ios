@@ -103,13 +103,6 @@ struct ScoreView: View {
                 }
             }
             .navigationTitle("學年成績")
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    NavigationLink(destination: ExamScoreView()) {
-                        Image(systemName: "list.bullet.clipboard")
-                    }
-                }
-            }
         }
         .task {
             await loadData()
@@ -381,7 +374,7 @@ struct ExamScoreView: View {
                         }
                         .onChange(of: selectedExam) { _, newValue in
                             if let exam = newValue {
-                                Task { await loadExamDetail(url: exam.fullURL) }
+                                Task { await loadExamDetail(fileName: exam.url) }
                             }
                         }
                     }
@@ -451,16 +444,16 @@ struct ExamScoreView: View {
             await loadMenu()
         }
         .refreshable {
-            await loadMenu(forceRefresh: true)
+            await loadMenu()
         }
     }
 
-    private func loadMenu(forceRefresh: Bool = false) async {
+    private func loadMenu() async {
         isLoading = true
         errorMessage = nil
 
         do {
-            let result = try await apiService.fetchExamMenu(forceRefresh: forceRefresh)
+            let result = try await apiService.fetchExamMenu()
             await MainActor.run {
                 self.examMenu = result
                 self.isLoading = false
@@ -478,11 +471,11 @@ struct ExamScoreView: View {
         }
     }
 
-    private func loadExamDetail(url: String) async {
+    private func loadExamDetail(fileName: String) async {
         isLoadingDetail = true
 
         do {
-            let result = try await apiService.fetchExamScore(url: url)
+            let result = try await apiService.fetchExamScore(fileName: fileName)
             await MainActor.run {
                 self.examData = result
                 self.isLoadingDetail = false
