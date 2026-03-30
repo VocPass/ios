@@ -15,6 +15,7 @@ struct YKVSApp: App {
     init() {
         SchoolConfigManager.shared.loadSchools()
         CacheService.shared.invalidateTimetableCacheIfNeeded()
+        _ = PhoneConnectivityManager.shared   // 啟動 WatchConnectivity
 
         BGTaskScheduler.shared.register(
             forTaskWithIdentifier: kDIBGTaskID,

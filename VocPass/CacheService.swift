@@ -120,7 +120,11 @@ class CacheService {
     // MARK: - 追蹤名單
     var followedUsernames: [String] {
         get { userDefaults.array(forKey: CacheKey.followedUsernames.rawValue) as? [String] ?? [] }
-        set { userDefaults.set(newValue, forKey: CacheKey.followedUsernames.rawValue) }
+        set {
+            userDefaults.set(newValue, forKey: CacheKey.followedUsernames.rawValue)
+            // 同步到 App Group 供 Watch 讀取
+            sharedDefaults?.set(newValue, forKey: CacheKey.followedUsernames.rawValue)
+        }
     }
 
     // MARK: - Manual Room/Teacher (key = "weekday|period")

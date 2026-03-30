@@ -71,6 +71,7 @@ struct FollowingListView: View {
                     .onDelete { indexSet in
                         followed.remove(atOffsets: indexSet)
                         CacheService.shared.followedUsernames = followed
+                        PhoneConnectivityManager.shared.pushFollowedUsernames(followed)
                     }
                 }
             }
@@ -95,6 +96,7 @@ struct FollowingListView: View {
                     guard !name.isEmpty, !followed.contains(name) else { return }
                     followed.append(name)
                     CacheService.shared.followedUsernames = followed
+                    PhoneConnectivityManager.shared.pushFollowedUsernames(followed)
                 }
                 Button("取消", role: .cancel) {}
             } message: {

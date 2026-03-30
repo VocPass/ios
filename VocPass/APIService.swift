@@ -335,6 +335,7 @@ class APIService: ObservableObject {
         let timetable = TimetableData(entries: entries, periodTimes: periodTimes, curriculum: curriculum)
         CacheService.shared.cacheTimetable(timetable)
         CacheService.shared.cacheCurriculum(timetable.curriculum)
+        Task { @MainActor in PhoneConnectivityManager.shared.pushTimetable(timetable) }
         return timetable
     }
 
@@ -374,8 +375,7 @@ class APIService: ObservableObject {
             }
         }
         let timetable = TimetableData(entries: entries, periodTimes: periodTimes, curriculum: curriculum)
-        CacheService.shared.cacheTimetable(timetable)
-        CacheService.shared.cacheCurriculum(timetable.curriculum)
+        Task { @MainActor in PhoneConnectivityManager.shared.pushSharedTimetable(timetable, for: username) }
         return timetable
     }
 
