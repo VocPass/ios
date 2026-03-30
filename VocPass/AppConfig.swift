@@ -24,4 +24,7 @@ enum AppConfig {
         return "https://vocpass.com"
         #endif
     }
+
+    static let discordURL = URL(string: "https://dc.vocpass.com")!
+    static let forumURL = URL(string: "https://forum.vocpass.com")!
 }

@@ -327,6 +327,11 @@ class APIService: ObservableObject {
             }
         }
 
+        // 若遠端回傳空課表，保留舊快取避免覆蓋已有資料
+        if curriculum.isEmpty, let cached = CacheService.shared.getCachedTimetable(), !cached.curriculum.isEmpty {
+            return cached
+        }
+
         let timetable = TimetableData(entries: entries, periodTimes: periodTimes, curriculum: curriculum)
         CacheService.shared.cacheTimetable(timetable)
         CacheService.shared.cacheCurriculum(timetable.curriculum)

@@ -341,6 +341,29 @@ struct SettingsView: View {
                                 .foregroundColor(.secondary)
                         }
                     }
+                    Link(destination: AppConfig.discordURL) {
+                        HStack {
+                            Image(systemName: "bubble.left.and.bubble.right")
+                            Text("Discord 社群")
+                            Spacer()
+                            Image(systemName: "arrow.up.right.square")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+
+                Section("回饋") {
+                    Link(destination: AppConfig.forumURL) {
+                        HStack {
+                            Image(systemName: "exclamationmark.bubble")
+                            Text("回報問題 / 功能請求")
+                            Spacer()
+                            Image(systemName: "arrow.up.right.square")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
                 }
             }
             .navigationTitle("設定")
