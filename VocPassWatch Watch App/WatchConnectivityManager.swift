@@ -63,7 +63,12 @@ class WatchConnectivityManager: NSObject, ObservableObject {
         guard WCSession.default.isReachable else { return }
         WCSession.default.sendMessage(
             [WatchMessageKey.action: WatchAction.requestRefresh],
-            replyHandler: nil, errorHandler: nil
+            replyHandler: { [weak self] reply in
+                Task { @MainActor in
+                    self?.handleApplicationContext(reply)
+                }
+            },
+            errorHandler: nil
         )
     }
 
