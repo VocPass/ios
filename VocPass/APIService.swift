@@ -492,7 +492,7 @@ class APIService: ObservableObject {
     }
 
     // MARK: - 缺曠統計（結合課表）
-    func fetchAttendanceWithCurriculum(classNumber: String = "212") async throws -> (statistics: AttendanceStatistics, subjectAbsences: [SubjectAbsence], records: [AbsenceRecord]) {
+    func fetchAttendanceWithCurriculum(classNumber: String = "212") async throws -> (statistics: AttendanceStatistics, subjectAbsences: [SubjectAbsence], records: [AbsenceRecord], courseMapping: [String: String]) {
         async let attendanceTask = fetchAttendance()
         async let curriculumTask = fetchCurriculum(classNumber: classNumber)
 
@@ -501,7 +501,9 @@ class APIService: ObservableObject {
 
         let manualCurriculum = CacheService.shared.manualCurriculum
         let subjectAbsences: [SubjectAbsence]
+        let courseMapping: [String: String]
         if let curriculum {
+            courseMapping = buildCourseMapping(curriculum: curriculum, manualCurriculum: manualCurriculum)
             subjectAbsences = calculateSubjectAbsences(
                 curriculum: curriculum,
                 absenceRecords: attendanceResult.records,
@@ -510,10 +512,26 @@ class APIService: ObservableObject {
                 manualCurriculum: manualCurriculum
             )
         } else {
+            courseMapping = [:]
             subjectAbsences = []
         }
 
-        return (attendanceResult.statistics, subjectAbsences, attendanceResult.records)
+        return (attendanceResult.statistics, subjectAbsences, attendanceResult.records, courseMapping)
+    }
+
+    func buildCourseMapping(curriculum: [String: CourseInfo], manualCurriculum: [String: String] = [:]) -> [String: String] {
+        var mapping: [String: String] = [:]
+        for (courseName, info) in curriculum {
+            for schedule in info.schedule {
+                mapping["\(schedule.weekday)-\(schedule.period)"] = courseName
+            }
+        }
+        for (manualKey, subject) in manualCurriculum where !subject.isEmpty {
+            let parts = manualKey.split(separator: "|")
+            guard parts.count == 2 else { continue }
+            mapping["\(parts[0])-\(parts[1])"] = subject
+        }
+        return mapping
     }
 
     // MARK: - 計算各科目缺曠

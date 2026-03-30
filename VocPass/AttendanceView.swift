@@ -12,6 +12,7 @@ struct AttendanceView: View {
     @State private var statistics: AttendanceStatistics = AttendanceStatistics()
     @State private var subjectAbsences: [SubjectAbsence] = []
     @State private var allRecords: [AbsenceRecord] = []
+    @State private var courseMapping: [String: String] = [:]
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var isUnsupported = false
@@ -86,7 +87,7 @@ struct AttendanceView: View {
                                     .foregroundColor(.secondary)
                             } else {
                                 ForEach(groupedRecords, id: \.date) { group in
-                                    AbsenceDayRow(date: group.date, records: group.records)
+                                    AbsenceDayRow(date: group.date, records: group.records, courseMapping: courseMapping)
                                 }
                             }
                         }
@@ -166,6 +167,7 @@ struct AttendanceView: View {
             let result = try await apiService.fetchAttendanceWithCurriculum()
             await MainActor.run {
                 self.allRecords = result.records
+                self.courseMapping = result.courseMapping
                 self.statistics = apiService.computeAttendanceStatistics(from: result.records, filterStandardOnly: excludeNonStandardPeriods)
                 self.subjectAbsences = result.subjectAbsences
                 self.isLoading = false
@@ -301,10 +303,25 @@ struct SubjectAbsenceRow: View {
 struct AbsenceDayRow: View {
     let date: String
     let records: [AbsenceRecord]
+    let courseMapping: [String: String]
+
+    private static let numberMap = ["1": "一", "2": "二", "3": "三", "4": "四", "5": "五", "6": "六", "7": "七"]
+
+    private static var currentSemesterLabel: String {
+        let month = Calendar.current.component(.month, from: Date())
+        return (month > 8 || month < 3) ? "上" : "下"
+    }
+
+    private func subject(for record: AbsenceRecord) -> String? {
+        guard record.academicYear == Self.currentSemesterLabel else { return nil }
+        let chinesePeriod = Self.numberMap[record.period] ?? record.period
+        let key = "\(record.weekday)-\(chinesePeriod)"
+        return courseMapping[key]
+    }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
                 Text(date)
                     .font(.subheadline)
                     .fontWeight(.medium)
@@ -313,32 +330,52 @@ struct AbsenceDayRow: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
+                if let semester = records.first?.academicYear, !semester.isEmpty {
+                    Text("\(semester)學期")
+                        .font(.caption2)
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(Color.secondary.opacity(0.6))
+                        .cornerRadius(4)
+                }
             }
-            .frame(minWidth: 90, alignment: .leading)
 
-            Spacer()
-
-            HStack(spacing: 6) {
+            ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
                 ForEach(records) { record in
-                    VStack(spacing: 2) {
+                    HStack(spacing: 4) {
                         Text(record.status)
                             .font(.caption2)
                             .fontWeight(.semibold)
                             .foregroundColor(.white)
-                            .padding(.horizontal, 6)
+                            .padding(.horizontal, 5)
                             .padding(.vertical, 3)
                             .background(statusColor(record.status))
                             .cornerRadius(5)
-                        if !record.period.isEmpty {
-                            Text("\(record.period)")
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
+                        VStack(alignment: .leading, spacing: 0) {
+                            if let name = subject(for: record) {
+                                Text(name)
+                                    .font(.caption2)
+                                    .fontWeight(.medium)
+                                    .lineLimit(1)
+                            }
+                            if !record.period.isEmpty {
+                                Text("第\(record.period)節")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
                         }
                     }
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 4)
+                    .background(statusColor(record.status).opacity(0.08))
+                    .cornerRadius(6)
                 }
             }
+            } // ScrollView
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 4)
     }
 
     private func statusColor(_ status: String) -> Color {
