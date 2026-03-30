@@ -319,8 +319,9 @@ struct CurriculumView: View {
     }
 
     private func refreshDynamicIslandTimes() {
-        // 重新套用手動時間到 DynamicIsland
-        var merged = TimetableData(entries: [], periodTimes: apiPeriodTimes, curriculum: curriculum)
+        // 重新套用手動時間到 DynamicIsland，保留已有的 entries
+        let cachedEntries = CacheService.shared.getCachedTimetable()?.entries ?? []
+        var merged = TimetableData(entries: cachedEntries, periodTimes: apiPeriodTimes, curriculum: curriculum)
         for (period, pt) in manualPeriodTimes {
             merged.periodTimes[period] = pt
         }

@@ -92,17 +92,42 @@ final class DynamicIslandService: ObservableObject {
         let calendar = Calendar.current
         let weekdayNum = calendar.component(.weekday, from: date)
         let todayWeekday = Self.weekdayMap[weekdayNum] ?? ""
+        let manualCurriculum = CacheService.shared.manualCurriculum
 
-        return timetable.entries
+        // API entries，套用手動科目覆蓋
+        var slots: [Slot] = timetable.entries
             .filter { $0.weekday == todayWeekday }
-            .sorted { (Self.periodOrder[$0.period] ?? 99) < (Self.periodOrder[$1.period] ?? 99) }
             .compactMap { entry -> Slot? in
                 guard let pt = periodTime(for: entry.period, in: timetable),
                       let start = Self.parseTime(pt.startTime, on: date, calendar: calendar),
                       let end   = Self.parseTime(pt.endTime,   on: date, calendar: calendar)
                 else { return nil }
-                return Slot(entry: entry, start: start, end: end)
+                let key = "\(entry.weekday)|\(entry.period)"
+                let subject = manualCurriculum[key].flatMap { $0.isEmpty ? nil : $0 } ?? entry.subject
+                let resolved = subject == entry.subject ? entry :
+                    TimetableEntry(weekday: entry.weekday, period: entry.period, subject: subject,
+                                   room: entry.room, teacher: entry.teacher)
+                return Slot(entry: resolved, start: start, end: end)
             }
+
+        // 純手動輸入（API 沒有的格子）
+        let coveredPeriods = Set(slots.map { $0.entry.period })
+        for (key, subject) in manualCurriculum {
+            guard !subject.isEmpty else { continue }
+            let parts = key.split(separator: "|")
+            guard parts.count == 2 else { continue }
+            let weekday = String(parts[0])
+            let period = String(parts[1])
+            guard weekday == todayWeekday, !coveredPeriods.contains(period) else { continue }
+            guard let pt = periodTime(for: period, in: timetable),
+                  let start = Self.parseTime(pt.startTime, on: date, calendar: calendar),
+                  let end   = Self.parseTime(pt.endTime,   on: date, calendar: calendar)
+            else { continue }
+            slots.append(Slot(entry: TimetableEntry(weekday: weekday, period: period, subject: subject),
+                              start: start, end: end))
+        }
+
+        return slots.sorted { (Self.periodOrder[$0.entry.period] ?? 99) < (Self.periodOrder[$1.entry.period] ?? 99) }
     }
 
     private func periodTime(for period: String, in timetable: TimetableData) -> PeriodTime? {
