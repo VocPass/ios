@@ -205,6 +205,7 @@ struct SemesterStatCard: View {
 
 struct SubjectAbsenceRow: View {
     let absence: SubjectAbsence
+    @AppStorage("absence_threshold_is_half") private var thresholdIsHalf = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -253,12 +254,11 @@ struct SubjectAbsenceRow: View {
     }
 
     private var percentageColor: Color {
-        switch absence.percentage {
-        case 0..<10: return .green
-        case 10..<20: return .yellow
-        case 20..<30: return .orange
-        default: return .red
-        }
+        let limit = thresholdIsHalf ? 50 : 33
+        if absence.percentage >= limit { return .red }
+        else if absence.percentage >= limit * 3 / 4 { return .orange }
+        else if absence.percentage >= limit / 2 { return .yellow }
+        else { return .green }
     }
 }
 

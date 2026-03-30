@@ -483,6 +483,7 @@ struct SchoolSettingsView: View {
     @State private var minutesBefore = CacheService.shared.autoStartMinutesBefore
     @State private var weeksPerSemester = CacheService.shared.weeksPerSemester
     @State private var periodsPerDay = CacheService.shared.periodsPerDay
+    @AppStorage("absence_threshold_is_half") private var absenceThresholdIsHalf = false
 
     var body: some View {
         List {
@@ -616,10 +617,17 @@ struct SchoolSettingsView: View {
                 .onChange(of: weeksPerSemester) { _, newValue in
                     CacheService.shared.weeksPerSemester = newValue
                 }
+
+                Picker(selection: $absenceThresholdIsHalf) {
+                    Text("1/3（33%）").tag(false)
+                    Text("1/2（50%）").tag(true)
+                } label: {
+                    Label("扣考門檻", systemImage: "exclamationmark.triangle")
+                }
             } header: {
                 Text("缺曠統計")
             } footer: {
-                Text("用於計算各科缺曠百分比，預設 18 週。")
+                Text("每學期週數用於計算各科缺曠百分比，預設 18 週。扣考門檻決定警告顏色的起始點。")
                     .font(.caption)
             }
 
