@@ -16,6 +16,27 @@ struct AttendanceView: View {
     @State private var errorMessage: String?
     @State private var isUnsupported = false
     @AppStorage("excludeNonStandardPeriods") private var excludeNonStandardPeriods = true
+    @State private var searchText = ""
+
+    private var groupedRecords: [(date: String, records: [AbsenceRecord])] {
+        let filtered: [AbsenceRecord]
+        if searchText.isEmpty {
+            filtered = allRecords
+        } else {
+            let q = searchText.lowercased()
+            filtered = allRecords.filter {
+                $0.date.lowercased().contains(q) ||
+                $0.status.contains(searchText) ||
+                $0.weekday.contains(searchText) ||
+                $0.period.contains(searchText) ||
+                $0.academicYear.contains(searchText)
+            }
+        }
+        let grouped = Dictionary(grouping: filtered, by: \.date)
+        return grouped.keys.sorted(by: >).map { date in
+            (date: date, records: grouped[date]!.sorted { ($0.period) < ($1.period) })
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -39,19 +60,33 @@ struct AttendanceView: View {
                     }
                 } else {
                     List {
-                        // 總覽區塊
-                        Section("缺曠總覽") {
-                            statisticsOverview
+                        if searchText.isEmpty {
+                            // 總覽區塊
+                            Section("缺曠總覽") {
+                                statisticsOverview
+                            }
+
+                            // 各科缺曠
+                            Section("各科缺曠統計") {
+                                if subjectAbsences.isEmpty {
+                                    Text("無缺曠記錄")
+                                        .foregroundColor(.secondary)
+                                } else {
+                                    ForEach(subjectAbsences.filter { $0.truancy + $0.personalLeave > 0 }) { absence in
+                                        SubjectAbsenceRow(absence: absence)
+                                    }
+                                }
+                            }
                         }
 
-                        // 各科缺曠
-                        Section("各科缺曠統計") {
-                            if subjectAbsences.isEmpty {
-                                Text("無缺曠記錄")
+                        // 缺曠明細
+                        Section(searchText.isEmpty ? "缺曠明細" : "搜尋結果（\(groupedRecords.count) 天）") {
+                            if groupedRecords.isEmpty {
+                                Text(searchText.isEmpty ? "無缺曠記錄" : "找不到符合的記錄")
                                     .foregroundColor(.secondary)
                             } else {
-                                ForEach(subjectAbsences.filter { $0.truancy + $0.personalLeave > 0 }) { absence in
-                                    SubjectAbsenceRow(absence: absence)
+                                ForEach(groupedRecords, id: \.date) { group in
+                                    AbsenceDayRow(date: group.date, records: group.records)
                                 }
                             }
                         }
@@ -62,6 +97,7 @@ struct AttendanceView: View {
                 }
             }
             .navigationTitle("缺曠統計")
+            .searchable(text: $searchText, prompt: "搜尋日期、類型、節次...")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Toggle(isOn: $excludeNonStandardPeriods) {
@@ -259,6 +295,60 @@ struct SubjectAbsenceRow: View {
         else if absence.percentage >= limit * 3 / 4 { return .orange }
         else if absence.percentage >= limit / 2 { return .yellow }
         else { return .green }
+    }
+}
+
+struct AbsenceDayRow: View {
+    let date: String
+    let records: [AbsenceRecord]
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(date)
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                if let weekday = records.first?.weekday, !weekday.isEmpty {
+                    Text(weekday)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .frame(minWidth: 90, alignment: .leading)
+
+            Spacer()
+
+            HStack(spacing: 6) {
+                ForEach(records) { record in
+                    VStack(spacing: 2) {
+                        Text(record.status)
+                            .font(.caption2)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(statusColor(record.status))
+                            .cornerRadius(5)
+                        if !record.period.isEmpty {
+                            Text("\(record.period)")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func statusColor(_ status: String) -> Color {
+        switch status {
+        case "曠", "曠課": return .red
+        case "事", "事假": return .orange
+        case "病", "病假": return .blue
+        case "公", "公假": return .green
+        default: return .gray
+        }
     }
 }
 
