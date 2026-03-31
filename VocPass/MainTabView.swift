@@ -531,30 +531,19 @@ struct SchoolSettingsView: View {
                         .font(.caption)
                 }
 
-                Button {
-                    if dynamicIsland.isActivityRunning {
-                        dynamicIsland.endActivity()
-                    } else {
-                        Task { await dynamicIsland.startActivity() }
-                    }
-                } label: {
-                    Label(
-                        dynamicIsland.isActivityRunning ? "手動停止" : "手動啟動",
-                        systemImage: dynamicIsland.isActivityRunning ? "stop.fill" : "play.fill"
-                    )
-                    .foregroundStyle(dynamicIsland.isActivityRunning ? .red : .blue)
-                }
-
                 Toggle(isOn: $autoStart) {
-                    Label("上課前自動顯示", systemImage: "clock.badge.checkmark")
+                    Label("啟用即時動態", systemImage: "clock.badge.checkmark")
                 }
                 .onChange(of: autoStart) { _, newValue in
                     CacheService.shared.autoStartDynamicIsland = newValue
                     if newValue {
                         dynamicIsland.scheduleAutoStart()
+                        dynamicIsland.autoStartIfNeeded()
                     } else {
                         dynamicIsland.cancelAutoStart()
+                        dynamicIsland.endActivity()
                     }
+                    dynamicIsland.uploadTokensToServer()
                 }
 
                 if autoStart {
@@ -575,41 +564,76 @@ struct SchoolSettingsView: View {
                 Text("即時動態 / 動態島")
             } footer: {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("開啟後，每天第一節課前 \(minutesBefore) 分鐘自動顯示動態島課表；放學後自動結束。")
+                    Text("開啟後，伺服器會在上課時段透過推播自動更新動態島課表。")
                         .font(.caption)
 
                     if let err = dynamicIsland.lastErrorMessage, !err.isEmpty {
-                        Text("啟動失敗：\(err)")
+                        Text("錯誤：\(err)")
                             .font(.caption2)
                             .foregroundStyle(.red)
                     }
                 }
             }
 
-            if let token = dynamicIsland.pushTokenHex, !token.isEmpty {
-                Section {
+            Section {
+                // Push-to-Start Token（遠端啟動用，App 啟動即可取得）
+                if let startToken = dynamicIsland.pushToStartTokenHex, !startToken.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
-                            Label("Push Token", systemImage: "key.fill")
+                            Label("Push-to-Start Token", systemImage: "power")
                             Spacer()
                             Button {
-                                UIPasteboard.general.string = token
+                                UIPasteboard.general.string = startToken
                             } label: {
                                 Label("複製", systemImage: "doc.on.doc")
                                     .font(.caption)
                             }
                         }
-                        Text(token)
+                        Text(startToken)
                             .font(.system(.caption2, design: .monospaced))
                             .foregroundStyle(.secondary)
                             .textSelection(.enabled)
                     }
-                } header: {
-                    Text("Live Activity Push Token")
-                } footer: {
-                    Text("用於遠端推送更新即時動態，可搭配 Python 腳本使用。")
-                        .font(.caption)
+                } else {
+                    HStack {
+                        Label("Push-to-Start Token", systemImage: "power")
+                        Spacer()
+                        ProgressView()
+                    }
                 }
+
+                // Push Token（遠端更新用，Live Activity 啟動後才有）
+                if dynamicIsland.isActivityRunning {
+                    if let token = dynamicIsland.pushTokenHex, !token.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Label("Push Token (更新用)", systemImage: "key.fill")
+                                Spacer()
+                                Button {
+                                    UIPasteboard.general.string = token
+                                } label: {
+                                    Label("複製", systemImage: "doc.on.doc")
+                                        .font(.caption)
+                                }
+                            }
+                            Text(token)
+                                .font(.system(.caption2, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                        }
+                    } else {
+                        HStack {
+                            Label("Push Token (更新用)", systemImage: "key.fill")
+                            Spacer()
+                            ProgressView()
+                        }
+                    }
+                }
+            } header: {
+                Text("Live Activity Tokens")
+            } footer: {
+                Text("Push-to-Start Token 用於遠端啟動即時動態；Push Token 在啟動後出現，用於遠端更新。")
+                    .font(.caption)
             }
 
             Section {

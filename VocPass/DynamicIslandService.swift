@@ -9,6 +9,7 @@ import ActivityKit
 import BackgroundTasks
 import Combine
 import Foundation
+import UIKit
 
 let kDIBGTaskID = "com.08hans.VocPass.liveActivity"
 
@@ -24,9 +25,11 @@ final class DynamicIslandService: ObservableObject {
     @Published var currentPeriod: String = ""
     @Published var lastErrorMessage: String?
     @Published var pushTokenHex: String?
+    @Published var pushToStartTokenHex: String?
 
     private var activity: Activity<ClassScheduleActivityAttributes>?
     private var pushTokenTask: Task<Void, Never>?
+    private var pushToStartTask: Task<Void, Never>?
     private var timetable: TimetableData?
 
     static let periodOrder: [String: Int] = [
@@ -72,6 +75,7 @@ final class DynamicIslandService: ObservableObject {
             autoStartIfNeeded()
         }
         if CacheService.shared.autoStartDynamicIsland { scheduleNextBGRefresh() }
+        uploadTokensToServer()
     }
 
     func reconnectIfNeeded() {
@@ -374,8 +378,10 @@ final class DynamicIslandService: ObservableObject {
             for await tokenData in act.pushTokenUpdates {
                 let hex = tokenData.map { String(format: "%02x", $0) }.joined()
                 await MainActor.run {
-                    self?.pushTokenHex = hex
+                    guard let self else { return }
+                    self.pushTokenHex = hex
                     print("⚡ [DI] Push Token: \(hex)")
+                    self.uploadTokensToServer()
                 }
             }
         }
@@ -384,6 +390,64 @@ final class DynamicIslandService: ObservableObject {
     private func stopObservingPushToken() {
         pushTokenTask?.cancel()
         pushTokenTask = nil
+    }
+
+    // MARK: - Push-to-Start Token 觀察
+
+    func observePushToStartToken() {
+        pushToStartTask?.cancel()
+        pushToStartTask = Task.detached {
+            for await tokenData in Activity<ClassScheduleActivityAttributes>.pushToStartTokenUpdates {
+                let hex = tokenData.map { String(format: "%02x", $0) }.joined()
+                await MainActor.run { [weak self] in
+                    guard let self else { return }
+                    self.pushToStartTokenHex = hex
+                    print("⚡ [DI] Push-to-Start Token: \(hex)")
+                    self.uploadTokensToServer()
+                }
+            }
+        }
+    }
+
+    // MARK: - 上傳 Token 到伺服器
+
+    func uploadTokensToServer() {
+        guard let startToken = pushToStartTokenHex, !startToken.isEmpty else { return }
+
+        let deviceToken = UIDevice.current.identifierForVendor?.uuidString ?? ""
+        guard !deviceToken.isEmpty else { return }
+
+        let isOpen = CacheService.shared.autoStartDynamicIsland
+
+        var body: [String: Any] = [
+            "device_token": deviceToken,
+            "start_token": startToken,
+            "is_dev": AppConfig.isDebugBuild,
+            "is_open": isOpen,
+        ]
+        if let updateToken = pushTokenHex, !updateToken.isEmpty {
+            body["update_token"] = updateToken
+        }
+
+        guard let url = URL(string: "\(AppConfig.vocPassAPIHost)/api/user/notify/ios") else { return }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        try? VocPassAuthService.shared.applyAuth(to: &req)
+        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        Task.detached {
+            do {
+                let (data, response) = try await URLSession.shared.data(for: req)
+                let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+                print("⚡ [DI] Token 上傳 ← HTTP \(status)")
+                if status != 200, let body = String(data: data, encoding: .utf8) {
+                    print("⚡ [DI] Token 上傳回應: \(body)")
+                }
+            } catch {
+                print("⚡ [DI] Token 上傳失敗: \(error)")
+            }
+        }
     }
 
     // MARK: - 計算目前 / 下一堂課的 ContentState

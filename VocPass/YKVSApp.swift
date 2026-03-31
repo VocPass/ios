@@ -35,6 +35,11 @@ struct YKVSApp: App {
                 DynamicIslandService.shared.reconnectIfNeeded()
             }
         }
+
+        // 開始監聽 Push-to-Start Token（用於遠端啟動 Live Activity）
+        Task { @MainActor in
+            DynamicIslandService.shared.observePushToStartToken()
+        }
     }
     
     var body: some Scene {
