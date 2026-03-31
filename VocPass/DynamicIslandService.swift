@@ -409,10 +409,13 @@ final class DynamicIslandService: ObservableObject {
         }
     }
 
-    // MARK: - 上傳 Token 到伺服器
+    // MARK: - 上傳 Token + 課表到伺服器
 
     func uploadTokensToServer() {
-        guard let startToken = pushToStartTokenHex, !startToken.isEmpty else { return }
+        guard VocPassAuthService.shared.isLoggedIn else {
+            print("⚡ [DI] 未登入 VocPass，跳過上傳")
+            return
+        }
 
         let deviceToken = UIDevice.current.identifierForVendor?.uuidString ?? ""
         guard !deviceToken.isEmpty else { return }
@@ -421,19 +424,32 @@ final class DynamicIslandService: ObservableObject {
 
         var body: [String: Any] = [
             "device_token": deviceToken,
-            "start_token": startToken,
             "is_dev": AppConfig.isDebugBuild,
             "is_open": isOpen,
         ]
+        if let startToken = pushToStartTokenHex, !startToken.isEmpty {
+            body["start_token"] = startToken
+        }
         if let updateToken = pushTokenHex, !updateToken.isEmpty {
             body["update_token"] = updateToken
+        }
+
+        // 附帶課表資料
+        if let curriculumData = try? JSONEncoder().encode(APIService.shared.buildMergedCurriculum()),
+           let curriculumJSON = try? JSONSerialization.jsonObject(with: curriculumData) {
+            body["curriculum"] = curriculumJSON
         }
 
         guard let url = URL(string: "\(AppConfig.vocPassAPIHost)/api/user/notify/ios") else { return }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        try? VocPassAuthService.shared.applyAuth(to: &req)
+        do {
+            try VocPassAuthService.shared.applyAuth(to: &req)
+        } catch {
+            print("⚡ [DI] Auth 失敗，跳過上傳: \(error)")
+            return
+        }
         req.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
         Task.detached {

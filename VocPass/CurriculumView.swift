@@ -189,6 +189,7 @@ struct CurriculumView: View {
                             }
                             CacheService.shared.manualRoomTeacher = manualRoomTeacher
                             editingCell = nil
+                            DynamicIslandService.shared.uploadTokensToServer()
                         },
                         onClear: {
                             manualCurriculum.removeValue(forKey: key)
@@ -196,6 +197,7 @@ struct CurriculumView: View {
                             CacheService.shared.manualCurriculum = manualCurriculum
                             CacheService.shared.manualRoomTeacher = manualRoomTeacher
                             editingCell = nil
+                            DynamicIslandService.shared.uploadTokensToServer()
                         },
                         onCancel: {
                             editingCell = nil

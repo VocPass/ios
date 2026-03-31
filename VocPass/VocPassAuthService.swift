@@ -19,7 +19,7 @@ struct VocPassUser: Codable {
     enum CodingKeys: String, CodingKey {
         case id, name, username, email, avatar, verified
         case emailVisibility = "email_visibility"
-        case shareStatus = "share_status"
+        case shareStatus = "curriculum_status"
     }
 
     var avatarURL: URL? {

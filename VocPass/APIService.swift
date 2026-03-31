@@ -403,7 +403,7 @@ class APIService: ObservableObject {
     }
 
     /// 合併 API 課表 + 手動課表 + 手動教室/教師，建立完整的上傳課表
-    private func buildMergedCurriculum() -> [String: CourseInfo] {
+    func buildMergedCurriculum() -> [String: CourseInfo] {
         let cached = CacheService.shared.getCachedTimetable()
         let manualSubjects = CacheService.shared.manualCurriculum   // ["weekday|period": subject]
         let manualExtras   = CacheService.shared.manualRoomTeacher  // ["weekday|period": CourseExtra]
