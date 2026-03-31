@@ -47,8 +47,7 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
-        let userInfo = notification.request.content.userInfo
-        handleNotification(userInfo: userInfo)
+        // 前景時由 didReceiveRemoteNotification 處理，這裡只負責顯示
         completionHandler([.banner, .sound])
     }
 
@@ -71,15 +70,10 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         didReceiveRemoteNotification userInfo: [AnyHashable: Any],
         fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
     ) {
-        handleNotification(userInfo: userInfo)
-        completionHandler(.newData)
-    }
-
-    // MARK: - 處理通知
-
-    private func handleNotification(userInfo: [AnyHashable: Any]) {
-        guard let action = userInfo["action"] as? String else { return }
-
+        guard let action = userInfo["action"] as? String else {
+            completionHandler(.noData)
+            return
+        }
         Task { @MainActor in
             let di = DynamicIslandService.shared
             switch action {
@@ -92,6 +86,8 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
             default:
                 break
             }
+            completionHandler(.newData)
         }
     }
+
 }

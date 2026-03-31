@@ -85,3 +85,6 @@ Gem*
 fastlane/
 .DS_Store
 img/
+
+*.p8
+update_live_activity.py
