@@ -59,8 +59,22 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         let userInfo = response.notification.request.content.userInfo
-        handleNotification(userInfo: userInfo)
-        completionHandler()
+        guard let action = userInfo["action"] as? String else {
+            completionHandler()
+            return
+        }
+        Task { @MainActor in
+            let di = DynamicIslandService.shared
+            switch action {
+            case "start_live_activity":
+                if !di.isActivityRunning { await di.startActivity() }
+            case "stop_live_activity":
+                di.endActivity()
+            default:
+                break
+            }
+            completionHandler()
+        }
     }
 
     // MARK: - 背景收到 silent push / content-available
