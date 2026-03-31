@@ -270,16 +270,17 @@ struct TimetableWidgetProvider: TimelineProvider {
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<TimetableWidgetEntry>) -> Void) {
         let now = Date()
-        guard let timetable = loadTimetable() else {
+        let timetable = loadTimetable() ?? WTimetableData(entries: [], periodTimes: [:])
+        let manualCurriculum  = loadManualCurriculum()
+        let manualPeriodTimes = loadManualPeriodTimes()
+        let manualRoomTeacher = loadManualRoomTeacher()
+
+        guard !timetable.entries.isEmpty || !manualCurriculum.isEmpty else {
             let entry = TimetableWidgetEntry(date: now, slots: [], weekdayLabel: weekdayChineseLabel(for: now), hasTimetable: false)
             let nextTry = Calendar.current.date(byAdding: .hour, value: 1, to: now)!
             completion(Timeline(entries: [entry], policy: .after(nextTry)))
             return
         }
-
-        let manualCurriculum  = loadManualCurriculum()
-        let manualPeriodTimes = loadManualPeriodTimes()
-        let manualRoomTeacher = loadManualRoomTeacher()
         let cal = Calendar.current
 
         // Collect refresh boundaries: today's class start/end + midnight for each upcoming day
@@ -312,11 +313,13 @@ struct TimetableWidgetProvider: TimelineProvider {
     }
 
     private func makeEntry(at date: Date) -> TimetableWidgetEntry {
-        guard let timetable = loadTimetable() else {
+        let timetable = loadTimetable() ?? WTimetableData(entries: [], periodTimes: [:])
+        let manualCurriculum = loadManualCurriculum()
+        guard !timetable.entries.isEmpty || !manualCurriculum.isEmpty else {
             return TimetableWidgetEntry(date: date, slots: [], weekdayLabel: weekdayChineseLabel(for: date), hasTimetable: false)
         }
         let (slots, day) = nextAvailableSlots(from: date, timetable: timetable,
-                                              manualCurriculum: loadManualCurriculum(),
+                                              manualCurriculum: manualCurriculum,
                                               manualPeriodTimes: loadManualPeriodTimes(),
                                               manualRoomTeacher: loadManualRoomTeacher())
         return TimetableWidgetEntry(
