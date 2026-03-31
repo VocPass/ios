@@ -66,12 +66,7 @@ final class DynamicIslandService: ObservableObject {
     func setTimetable(_ data: TimetableData) {
         self.timetable = data
         reconnectIfNeeded()
-        if isActivityRunning {
-            updateActivity()
-            if currentSubject.isEmpty && nextSubject.isEmpty {
-                endActivity()
-            }
-        } else {
+        if !isActivityRunning {
             autoStartIfNeeded()
         }
         if CacheService.shared.autoStartDynamicIsland { scheduleNextBGRefresh() }
@@ -224,27 +219,21 @@ final class DynamicIslandService: ObservableObject {
         CacheService.shared.syncTimetableToWidget()
 
         let now = Date()
-        let state = makeContentState(at: now)
 
-        if isActivityRunning {
-            if state.currentSubject.isEmpty && state.nextSubject.isEmpty {
-                endActivity()
-            } else {
-                updateActivity()
+        if !isActivityRunning && CacheService.shared.autoStartDynamicIsland {
+            let state = makeContentState(at: now)
+            if !state.currentSubject.isEmpty || !state.nextSubject.isEmpty {
+                Task {
+                    await self.startActivity()
+                    self.scheduleNextBGRefresh(after: now)
+                    task.setTaskCompleted(success: true)
+                }
+                return
             }
-            scheduleNextBGRefresh(after: now)
-            task.setTaskCompleted(success: true)
-        } else if CacheService.shared.autoStartDynamicIsland
-                    && (!state.currentSubject.isEmpty || !state.nextSubject.isEmpty) {
-            Task {
-                await self.startActivity()
-                self.scheduleNextBGRefresh(after: now)
-                task.setTaskCompleted(success: true)
-            }
-        } else {
-            scheduleNextBGRefresh(after: now)
-            task.setTaskCompleted(success: true)
         }
+
+        scheduleNextBGRefresh(after: now)
+        task.setTaskCompleted(success: true)
     }
 
     // MARK: - 自動排程（公開介面）

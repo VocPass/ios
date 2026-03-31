@@ -59,12 +59,7 @@ struct YKVSApp: App {
             switch phase {
             case .active:
                 di.reconnectIfNeeded()
-                if di.isActivityRunning {
-                    di.updateActivity()
-                    if di.currentSubject.isEmpty && di.nextSubject.isEmpty {
-                        di.endActivity()
-                    }
-                } else {
+                if !di.isActivityRunning {
                     di.autoStartIfNeeded()
                 }
             case .background:
