@@ -32,6 +32,7 @@
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>fetch</string>
+		<string>remote-notification</string>
 	</array>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>顯示附近餐廳距離並在地圖上排序</string>

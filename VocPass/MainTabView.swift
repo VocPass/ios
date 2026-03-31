@@ -586,6 +586,32 @@ struct SchoolSettingsView: View {
                 }
             }
 
+            if let token = dynamicIsland.pushTokenHex, !token.isEmpty {
+                Section {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Label("Push Token", systemImage: "key.fill")
+                            Spacer()
+                            Button {
+                                UIPasteboard.general.string = token
+                            } label: {
+                                Label("複製", systemImage: "doc.on.doc")
+                                    .font(.caption)
+                            }
+                        }
+                        Text(token)
+                            .font(.system(.caption2, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
+                } header: {
+                    Text("Live Activity Push Token")
+                } footer: {
+                    Text("用於遠端推送更新即時動態，可搭配 Python 腳本使用。")
+                        .font(.caption)
+                }
+            }
+
             Section {
                 Stepper(value: $periodsPerDay, in: 1...12) {
                     HStack {

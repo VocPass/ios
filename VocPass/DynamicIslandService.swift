@@ -23,9 +23,10 @@ final class DynamicIslandService: ObservableObject {
     @Published var nextSubject: String = ""
     @Published var currentPeriod: String = ""
     @Published var lastErrorMessage: String?
+    @Published var pushTokenHex: String?
 
     private var activity: Activity<ClassScheduleActivityAttributes>?
-    private var updateTask: Task<Void, Never>?
+    private var pushTokenTask: Task<Void, Never>?
     private var timetable: TimetableData?
 
     static let periodOrder: [String: Int] = [
@@ -82,7 +83,7 @@ final class DynamicIslandService: ObservableObject {
         activity = existing
         isActivityRunning = true
         print("⚡ [DI] 重新連接到現有 Live Activity：\(existing.id)")
-        startUpdateLoop()
+        observePushToken()
     }
 
     // MARK: - 今日時段清單
@@ -312,13 +313,13 @@ final class DynamicIslandService: ObservableObject {
                     state: state,
                     staleDate: computeNextStaleDate()
                 ),
-                pushType: nil
+                pushType: .token
             )
             activity = newActivity
             isActivityRunning = true
             lastErrorMessage = nil
             print("⚡ [DI] Live Activity 已啟動：\(newActivity.id)")
-            startUpdateLoop()
+            observePushToken()
             scheduleNextBGRefresh()
         } catch {
             lastErrorMessage = error.localizedDescription
@@ -347,7 +348,8 @@ final class DynamicIslandService: ObservableObject {
         guard let act = activity else { return }
         activity = nil
         isActivityRunning = false
-        stopUpdateLoop()
+        pushTokenHex = nil
+        stopObservingPushToken()
         scheduleNextBGRefresh()
         let finalState = ClassScheduleActivityAttributes.ContentState(
             currentPeriod: "", currentSubject: "", currentStartTime: nil,
@@ -363,38 +365,25 @@ final class DynamicIslandService: ObservableObject {
         print("⚡ [DI] Live Activity 已結束")
     }
 
-    // MARK: - 定時更新迴圈
+    // MARK: - Push Token 觀察
 
-    private func startUpdateLoop() {
-        stopUpdateLoop()
-        updateTask = Task.detached(priority: .utility) { [weak self] in
-            guard let self else { return }
-            while !Task.isCancelled {
-                await MainActor.run { self.updateActivity() }
-
-                let schoolDone = await MainActor.run {
-                    self.currentSubject.isEmpty && self.nextSubject.isEmpty
+    private func observePushToken() {
+        pushTokenTask?.cancel()
+        guard let act = activity else { return }
+        pushTokenTask = Task.detached { [weak self] in
+            for await tokenData in act.pushTokenUpdates {
+                let hex = tokenData.map { String(format: "%02x", $0) }.joined()
+                await MainActor.run {
+                    self?.pushTokenHex = hex
+                    print("⚡ [DI] Push Token: \(hex)")
                 }
-                if schoolDone {
-                    await MainActor.run { self.endActivity() }
-                    return
-                }
-
-                let sleepSeconds: TimeInterval = await MainActor.run {
-                    if let stale = self.computeNextStaleDate() {
-                        let interval = stale.timeIntervalSince(Date()) + 1
-                        return min(max(interval, 5), 60)
-                    }
-                    return 30
-                }
-                try? await Task.sleep(nanoseconds: UInt64(sleepSeconds * 1_000_000_000))
             }
         }
     }
 
-    private func stopUpdateLoop() {
-        updateTask?.cancel()
-        updateTask = nil
+    private func stopObservingPushToken() {
+        pushTokenTask?.cancel()
+        pushTokenTask = nil
     }
 
     // MARK: - 計算目前 / 下一堂課的 ContentState
