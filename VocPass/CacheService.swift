@@ -29,7 +29,6 @@ class CacheService {
         case savedSchoolCode = "saved_school_code"
         case rememberCredentials = "remember_credentials"
         case autoStartDynamicIsland = "auto_start_dynamic_island"
-        case autoStartMinutesBefore = "auto_start_minutes_before"
         case manualCurriculum = "manual_curriculum"
         case manualPeriodTimes = "manual_period_times"
         case manualRoomTeacher = "manual_room_teacher"
@@ -66,14 +65,6 @@ class CacheService {
     var autoStartDynamicIsland: Bool {
         get { userDefaults.bool(forKey: CacheKey.autoStartDynamicIsland.rawValue) }
         set { userDefaults.set(newValue, forKey: CacheKey.autoStartDynamicIsland.rawValue) }
-    }
-
-    var autoStartMinutesBefore: Int {
-        get {
-            let v = userDefaults.integer(forKey: CacheKey.autoStartMinutesBefore.rawValue)
-            return v == 0 ? 30 : v
-        }
-        set { userDefaults.set(newValue, forKey: CacheKey.autoStartMinutesBefore.rawValue) }
     }
 
     // MARK: - Manual Curriculum (key = "weekday|period")

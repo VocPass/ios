@@ -480,7 +480,6 @@ struct SchoolSettingsView: View {
     @StateObject private var schoolConfigManager = SchoolConfigManager.shared
     @State private var showCookies = false
     @State private var autoStart = CacheService.shared.autoStartDynamicIsland
-    @State private var minutesBefore = CacheService.shared.autoStartMinutesBefore
     @State private var weeksPerSemester = CacheService.shared.weeksPerSemester
     @State private var periodsPerDay = CacheService.shared.periodsPerDay
     @AppStorage("absence_threshold_is_half") private var absenceThresholdIsHalf = false
@@ -546,20 +545,8 @@ struct SchoolSettingsView: View {
                     dynamicIsland.uploadTokensToServer()
                 }
 
-                if autoStart {
-                    Stepper(value: $minutesBefore, in: 5...60, step: 5) {
-                        HStack {
-                            Label("提前啟動時間", systemImage: "timer")
-                            Spacer()
-                            Text("\(minutesBefore) 分鐘前")
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .onChange(of: minutesBefore) { _, newValue in
-                        CacheService.shared.autoStartMinutesBefore = newValue
-                        dynamicIsland.scheduleAutoStart()
-                    }
-                }
+
+
             } header: {
                 Text("即時動態 / 動態島")
             } footer: {
@@ -629,10 +616,33 @@ struct SchoolSettingsView: View {
                         }
                     }
                 }
+                // APNs Device Token（一般通知用）
+                if let apnsToken = dynamicIsland.apnsDeviceTokenHex, !apnsToken.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Label("APNs Device Token", systemImage: "bell.fill")
+                            Spacer()
+                            Button {
+                                UIPasteboard.general.string = apnsToken
+                            } label: {
+                                Image(systemName: "doc.on.doc")
+                            }
+                        }
+                        Text(apnsToken)
+                            .font(.system(.caption2, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    HStack {
+                        Label("APNs Device Token", systemImage: "bell.fill")
+                        Spacer()
+                        ProgressView()
+                    }
+                }
             } header: {
                 Text("Live Activity Tokens")
             } footer: {
-                Text("Push-to-Start Token 用於遠端啟動即時動態；Push Token 在啟動後出現，用於遠端更新。")
+                Text("Push-to-Start Token 用於遠端啟動即時動態；Push Token 在啟動後出現，用於遠端更新；APNs Device Token 用於一般通知觸發啟動。")
                     .font(.caption)
             }
 

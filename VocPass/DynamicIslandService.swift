@@ -26,6 +26,7 @@ final class DynamicIslandService: ObservableObject {
     @Published var lastErrorMessage: String?
     @Published var pushTokenHex: String?
     @Published var pushToStartTokenHex: String?
+    @Published var apnsDeviceTokenHex: String?
 
     private var activity: Activity<ClassScheduleActivityAttributes>?
     private var pushTokenTask: Task<Void, Never>?
@@ -171,10 +172,9 @@ final class DynamicIslandService: ObservableObject {
     private func buildTriggers(on date: Date) -> [Date] {
         let slots = todaySlots(on: date)
         guard !slots.isEmpty else { return [] }
-        let minutesBefore = TimeInterval(CacheService.shared.autoStartMinutesBefore)
         var triggers: [Date] = []
         if let first = slots.first {
-            triggers.append(first.start.addingTimeInterval(-minutesBefore * 60))
+            triggers.append(first.start)
         }
         for s in slots {
             triggers.append(s.start)
@@ -256,8 +256,7 @@ final class DynamicIslandService: ObservableObject {
               let firstStart = slots.first?.start,
               let lastEnd = slots.last?.end else { return }
 
-        let minutesBefore = TimeInterval(CacheService.shared.autoStartMinutesBefore)
-        let autoStartTime = firstStart.addingTimeInterval(-minutesBefore * 60)
+        let autoStartTime = firstStart
 
         guard now >= autoStartTime && now <= lastEnd else { return }
 
@@ -415,12 +414,16 @@ final class DynamicIslandService: ObservableObject {
             "device_token": deviceToken,
             "is_dev": AppConfig.isDebugBuild,
             "is_open": isOpen,
+            "early": 0,
         ]
         if let startToken = pushToStartTokenHex, !startToken.isEmpty {
             body["start_token"] = startToken
         }
         if let updateToken = pushTokenHex, !updateToken.isEmpty {
             body["update_token"] = updateToken
+        }
+        if let apnsToken = apnsDeviceTokenHex, !apnsToken.isEmpty {
+            body["apns_token"] = apnsToken
         }
 
         // 附帶課表資料

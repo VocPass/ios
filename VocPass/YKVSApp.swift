@@ -10,6 +10,7 @@ import SwiftUI
 
 @main
 struct YKVSApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
@@ -62,6 +63,7 @@ struct YKVSApp: App {
                 if !di.isActivityRunning {
                     di.autoStartIfNeeded()
                 }
+                di.uploadTokensToServer()
             case .background:
                 di.scheduleNextBGRefresh()
             default:
