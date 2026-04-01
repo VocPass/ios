@@ -17,7 +17,7 @@ struct SchoolSelectionView: View {
     @State private var showBeta = false
     @State private var searchText = ""
 
-    private let applySchoolURL = URL(string: "https://forms.gle/t145dao5K2DHkxa2A")
+    private let applySchoolURL = URL(string: "https://vocpass.com/apply")
     private let privacyPolicyURL = URL(string: "https://vocpass.com/privacy-policy")
     private let disclaimerURL = URL(string: "https://vocpass.com/disclaimer")
 

@@ -480,6 +480,7 @@ struct SchoolSettingsView: View {
     @StateObject private var schoolConfigManager = SchoolConfigManager.shared
     @State private var showCookies = false
     @State private var autoStart = CacheService.shared.autoStartDynamicIsland
+    @State private var showLoginRequiredAlert = false
     @State private var weeksPerSemester = CacheService.shared.weeksPerSemester
     @State private var periodsPerDay = CacheService.shared.periodsPerDay
     @AppStorage("absence_threshold_is_half") private var absenceThresholdIsHalf = false
@@ -534,6 +535,11 @@ struct SchoolSettingsView: View {
                     Label("啟用即時動態", systemImage: "clock.badge.checkmark")
                 }
                 .onChange(of: autoStart) { _, newValue in
+                    if newValue && !VocPassAuthService.shared.isLoggedIn {
+                        autoStart = false
+                        showLoginRequiredAlert = true
+                        return
+                    }
                     CacheService.shared.autoStartDynamicIsland = newValue
                     if newValue {
                         dynamicIsland.scheduleAutoStart()
@@ -543,6 +549,11 @@ struct SchoolSettingsView: View {
                         dynamicIsland.endActivity()
                     }
                     dynamicIsland.uploadTokensToServer()
+                }
+                .alert("請先登入 VocPass", isPresented: $showLoginRequiredAlert) {
+                    Button("確定", role: .cancel) {}
+                } message: {
+                    Text("啟用即時動態需要登入 VocPass 帳號。")
                 }
 
 
