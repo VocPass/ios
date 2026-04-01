@@ -32,9 +32,6 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         print("⚡ [Push] APNs Device Token: \(hex)")
         Task { @MainActor in
             DynamicIslandService.shared.apnsDeviceTokenHex = hex
-            // 不需登入，先上傳 APNs token 預先註冊裝置
-            DynamicIslandService.shared.uploadApnsTokenOnly()
-            // 若已登入則同時上傳完整資料（即時通知 / Dynamic Island 用）
             DynamicIslandService.shared.uploadTokensToServer()
         }
     }

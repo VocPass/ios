@@ -399,55 +399,17 @@ final class DynamicIslandService: ObservableObject {
 
     // MARK: - 上傳 Token + 課表到伺服器
 
-    /// 不需登入：只上傳 APNs token（用於 app 啟動時預先註冊裝置）
-    func uploadApnsTokenOnly() {
-        guard let apnsToken = apnsDeviceTokenHex, !apnsToken.isEmpty else { return }
-        let deviceToken = UIDevice.current.identifierForVendor?.uuidString ?? ""
-        guard !deviceToken.isEmpty else { return }
-
-        let body: [String: Any] = [
-            "device_token": deviceToken,
-            "apns_token": apnsToken,
-            "is_dev": AppConfig.isDebugBuild,
-            "is_open": CacheService.shared.autoStartDynamicIsland,
-        ]
-
-        guard let url = URL(string: "\(AppConfig.vocPassAPIHost)/api/user/notify/ios") else { return }
-        var req = URLRequest(url: url)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
-
-        Task.detached {
-            do {
-                let (data, response) = try await URLSession.shared.data(for: req)
-                let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-                print("⚡ [DI] APNs Token 匿名上傳 ← HTTP \(status)")
-                if status != 200, let body = String(data: data, encoding: .utf8) {
-                    print("⚡ [DI] APNs Token 匿名上傳回應: \(body)")
-                }
-            } catch {
-                print("⚡ [DI] APNs Token 匿名上傳失敗: \(error)")
-            }
-        }
-    }
-
-    /// 需登入：上傳完整 token + 課表（即時通知用）
+    /// 上傳裝置 token 到伺服器。
+    /// 未登入時：上傳 APNs / Live Activity token（無 auth）。
+    /// 已登入時：額外附加 auth header 與課表資料。
     func uploadTokensToServer() {
-        guard VocPassAuthService.shared.isLoggedIn else {
-            print("⚡ [DI] 未登入 VocPass，跳過上傳")
-            return
-        }
-
         let deviceToken = UIDevice.current.identifierForVendor?.uuidString ?? ""
         guard !deviceToken.isEmpty else { return }
-
-        let isOpen = CacheService.shared.autoStartDynamicIsland
 
         var body: [String: Any] = [
             "device_token": deviceToken,
             "is_dev": AppConfig.isDebugBuild,
-            "is_open": isOpen,
+            "is_open": CacheService.shared.autoStartDynamicIsland,
             "early": 0,
         ]
         if let startToken = pushToStartTokenHex, !startToken.isEmpty {
@@ -460,22 +422,25 @@ final class DynamicIslandService: ObservableObject {
             body["apns_token"] = apnsToken
         }
 
-        // 附帶課表資料
-        if let curriculumData = try? JSONEncoder().encode(APIService.shared.buildMergedCurriculum()),
-           let curriculumJSON = try? JSONSerialization.jsonObject(with: curriculumData) {
-            body["curriculum"] = curriculumJSON
-        }
-
         guard let url = URL(string: "\(AppConfig.vocPassAPIHost)/api/user/notify/ios") else { return }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        do {
-            try VocPassAuthService.shared.applyAuth(to: &req)
-        } catch {
-            print("⚡ [DI] Auth 失敗，跳過上傳: \(error)")
-            return
+
+        if VocPassAuthService.shared.isLoggedIn {
+            // 已登入：附加 auth 與課表
+            do {
+                try VocPassAuthService.shared.applyAuth(to: &req)
+            } catch {
+                print("⚡ [DI] Auth 失敗，跳過上傳: \(error)")
+                return
+            }
+            if let curriculumData = try? JSONEncoder().encode(APIService.shared.buildMergedCurriculum()),
+               let curriculumJSON = try? JSONSerialization.jsonObject(with: curriculumData) {
+                body["curriculum"] = curriculumJSON
+            }
         }
+
         req.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
         Task.detached {
