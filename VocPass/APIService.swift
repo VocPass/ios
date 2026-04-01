@@ -405,8 +405,15 @@ class APIService: ObservableObject {
     /// 合併 API 課表 + 手動課表 + 手動教室/教師，建立完整的上傳課表
     func buildMergedCurriculum() -> [String: CourseInfo] {
         let cached = CacheService.shared.getCachedTimetable()
-        let manualSubjects = CacheService.shared.manualCurriculum   // ["weekday|period": subject]
-        let manualExtras   = CacheService.shared.manualRoomTeacher  // ["weekday|period": CourseExtra]
+        let manualSubjects   = CacheService.shared.manualCurriculum   // ["weekday|period": subject]
+        let manualExtras     = CacheService.shared.manualRoomTeacher  // ["weekday|period": CourseExtra]
+        let manualPeriodTimes = CacheService.shared.manualPeriodTimes // ["period": PeriodTime]
+        let apiPeriodTimes   = cached?.periodTimes ?? [:]
+
+        // 手動時間優先，否則用 API 時間
+        func effectivePeriodTime(for period: String) -> PeriodTime? {
+            manualPeriodTimes[period] ?? apiPeriodTimes[period]
+        }
 
         var subjectSchedules: [String: [CourseSchedule]] = [:]
         var coveredKeys = Set<String>()
@@ -421,7 +428,7 @@ class APIService: ObservableObject {
                 let extra   = manualExtras[key]
                 let room    = extra.flatMap { $0.room.isEmpty ? nil : $0.room }    ?? entry.room
                 let teacher = extra.flatMap { $0.teacher.isEmpty ? nil : $0.teacher } ?? entry.teacher
-                let pt      = timetable.periodTimes[entry.period]
+                let pt      = effectivePeriodTime(for: entry.period)
 
                 let schedule = CourseSchedule(
                     weekday: entry.weekday, period: entry.period,
@@ -441,8 +448,13 @@ class APIService: ObservableObject {
             let extra   = manualExtras[key]
             let room    = extra.flatMap { $0.room.isEmpty ? nil : $0.room }
             let teacher = extra.flatMap { $0.teacher.isEmpty ? nil : $0.teacher }
+            let pt      = effectivePeriodTime(for: period)
 
-            let schedule = CourseSchedule(weekday: weekday, period: period, room: room, teacher: teacher)
+            let schedule = CourseSchedule(
+                weekday: weekday, period: period,
+                start: pt?.startTime, end: pt?.endTime,
+                room: room, teacher: teacher
+            )
             subjectSchedules[subject, default: []].append(schedule)
         }
 
