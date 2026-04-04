@@ -209,17 +209,17 @@ private func slotsForDay(
         }
 }
 
-private func displaySlots(at now: Date, allSlots: [ScheduleSlot]) -> [ScheduleSlot] {
+private func displaySlots(at now: Date, allSlots: [ScheduleSlot], maxCount: Int = 6) -> [ScheduleSlot] {
     if let currentIdx = allSlots.firstIndex(where: { now >= $0.startTime && now < $0.endTime }) {
         var result = [ScheduleSlot]()
         var current = allSlots[currentIdx]
         current.isCurrent = true
         result.append(current)
-        let upcoming = allSlots[(currentIdx + 1)...].prefix(3)
+        let upcoming = allSlots[(currentIdx + 1)...].prefix(maxCount - 1)
         result.append(contentsOf: upcoming)
         return result
     }
-    return Array(allSlots.filter { $0.startTime > now }.prefix(4))
+    return Array(allSlots.filter { $0.startTime > now }.prefix(maxCount))
 }
 
 private func nextAvailableSlots(
@@ -227,7 +227,8 @@ private func nextAvailableSlots(
     timetable: WTimetableData,
     manualCurriculum: [String: String],
     manualPeriodTimes: [String: WPeriodTime],
-    manualRoomTeacher: [String: WCourseExtra] = [:]
+    manualRoomTeacher: [String: WCourseExtra] = [:],
+    maxCount: Int = 6
 ) -> (slots: [ScheduleSlot], day: Date) {
     let cal = Calendar.current
     for offset in 0...6 {
@@ -236,9 +237,9 @@ private func nextAvailableSlots(
                                    manualPeriodTimes: manualPeriodTimes, manualRoomTeacher: manualRoomTeacher)
         let visible: [ScheduleSlot]
         if offset == 0 {
-            visible = displaySlots(at: date, allSlots: allSlots)
+            visible = displaySlots(at: date, allSlots: allSlots, maxCount: maxCount)
         } else {
-            visible = Array(allSlots.prefix(4))
+            visible = Array(allSlots.prefix(maxCount))
         }
         if !visible.isEmpty { return (visible, targetDay) }
     }
@@ -299,7 +300,8 @@ struct TimetableWidgetProvider: TimelineProvider {
 
         let entries = refreshDates.sorted().map { date -> TimetableWidgetEntry in
             let (slots, day) = nextAvailableSlots(from: date, timetable: timetable, manualCurriculum: manualCurriculum,
-                                                  manualPeriodTimes: manualPeriodTimes, manualRoomTeacher: manualRoomTeacher)
+                                                  manualPeriodTimes: manualPeriodTimes, manualRoomTeacher: manualRoomTeacher,
+                                                  maxCount: 6)
             return TimetableWidgetEntry(
                 date: date,
                 slots: slots,
@@ -321,7 +323,8 @@ struct TimetableWidgetProvider: TimelineProvider {
         let (slots, day) = nextAvailableSlots(from: date, timetable: timetable,
                                               manualCurriculum: manualCurriculum,
                                               manualPeriodTimes: loadManualPeriodTimes(),
-                                              manualRoomTeacher: loadManualRoomTeacher())
+                                              manualRoomTeacher: loadManualRoomTeacher(),
+                                              maxCount: 6)
         return TimetableWidgetEntry(
             date: date,
             slots: slots,
@@ -406,11 +409,12 @@ struct TimetableWidgetEntryView: View {
     // MARK: Schedule list
 
     private var scheduleView: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        let maxSlots = family == .systemLarge ? 6 : 4
+        return VStack(alignment: .leading, spacing: 0) {
             header
                 .padding(.bottom, 7)
             VStack(spacing: 3) {
-                ForEach(Array(entry.slots.prefix(4).enumerated()), id: \.offset) { _, slot in
+                ForEach(Array(entry.slots.prefix(maxSlots).enumerated()), id: \.offset) { _, slot in
                     SlotRowView(slot: slot)
                 }
             }

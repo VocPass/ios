@@ -33,10 +33,12 @@ struct CurriculumView: View {
 
     private let weekdays = ["一", "二", "三", "四", "五"]
     private let periodOrder = ["早讀", "一", "二", "三", "四", "五", "六", "七", "八", "九", "十",
+                                "十一", "十二", "十三", "十四", "十五",
                                 "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]
 
     private var periods: [String] {
         let numericPeriods = ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十",
+                              "十一", "十二", "十三", "十四", "十五",
                               "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]
 
         // Collect all periods that actually have data
