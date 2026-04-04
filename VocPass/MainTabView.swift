@@ -96,6 +96,18 @@ struct HomePageView: View {
                     .buttonStyle(.borderedProminent)
                 }
 
+                NavigationLink(destination: W2MListView()) {
+                    Label("出來玩", systemImage: "calendar.badge.plus")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.purple.opacity(0.12))
+                        .foregroundStyle(Color.purple)
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 32)
+
                 NavigationLink(destination: RestaurantView()) {
                     Label("吃啥？", systemImage: "fork.knife")
                         .font(.headline)

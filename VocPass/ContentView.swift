@@ -16,6 +16,7 @@ struct ContentView: View {
     @State private var selectedTab = 0
     @State private var showSchoolPicker = false
     @State private var schoolPickerDismissed = false
+    @State private var deepLinkEventID: W2MDeepLinkTarget?
 
     var body: some View {
         Group {
@@ -35,7 +36,19 @@ struct ContentView: View {
                             selectedTab = 1
                         }
                     }
+                    .sheet(item: $deepLinkEventID) { target in
+                        NavigationStack {
+                            W2MResultView(eventID: target.id)
+                        }
+                    }
             }
+        }
+        .onOpenURL { url in
+            // vocpass://w2m/<event_id>
+            guard url.scheme == "vocpass",
+                  url.host == "w2m",
+                  let id = url.pathComponents.dropFirst().first, !id.isEmpty else { return }
+            deepLinkEventID = W2MDeepLinkTarget(id: id)
         }
         .onAppear {
             if schoolConfigManager.schools.isEmpty {
@@ -147,12 +160,19 @@ struct LoginView: View {
     }
 }
 
+// MARK: - Deep Link Helper
+
+struct W2MDeepLinkTarget: Identifiable {
+    let id: String
+}
+
 // MARK: - 通知名稱
 extension Notification.Name {
     static let schoolChanged = Notification.Name("schoolChanged")
     static let showSchoolPicker = Notification.Name("showSchoolPicker")
     static let captchaRecognitionStarted = Notification.Name("captchaRecognitionStarted")
     static let captchaRecognitionCompleted = Notification.Name("captchaRecognitionCompleted")
+    static let openW2MEvent = Notification.Name("openW2MEvent")
 }
 
 // MARK: - 不支援功能畫面
