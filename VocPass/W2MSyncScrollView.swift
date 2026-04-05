@@ -81,6 +81,8 @@ class W2MSyncVC<LeftContent: View, RightContent: View>: UIViewController {
 
     required init?(coder: NSCoder) { fatalError() }
 
+    deinit {}
+
     override func viewDidLoad() {
         super.viewDidLoad()
 
