@@ -7,21 +7,23 @@ import SwiftUI
 
 struct W2MResultView: View {
     let eventID: String
-    var creatorID: String? = nil   // 從列表頁傳入，或由 event.creator 補充
+    var creatorID: String? = nil
 
     @State private var event: W2MEvent?
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var selectedSlot: W2MSlot?
-    @State private var focusedUserID: String?   // 正在 highlight 的人
+    @State private var focusedUserID: String?
     @State private var showAvailability = false
     @State private var showEdit = false
     @State private var showParticipants = false
+    @State private var showUserDetail: W2MUserAvailability?
 
     @ObservedObject private var vocPassAuth = VocPassAuthService.shared
 
     private let cellHeight: CGFloat = 26
     private let timeColumnWidth: CGFloat = 44
+    private let headerHeight: CGFloat = 36
 
     private var times: [String] {
         (6..<24).flatMap { h in [0, 30].map { m in String(format: "%02d:%02d", h, m) } }
@@ -29,7 +31,6 @@ struct W2MResultView: View {
 
     private var isCreator: Bool {
         guard let me = vocPassAuth.currentUser else { return false }
-        // 優先用 event.creator（詳情 API），fallback 用列表頁傳進來的 creatorID
         let cid = event?.creator?.id ?? creatorID
         return cid == me.id
     }
@@ -87,7 +88,19 @@ struct W2MResultView: View {
         }
         .sheet(isPresented: $showParticipants) {
             if let event = event {
-                W2MParticipantsView(event: event)
+                W2MParticipantsView(event: event) { entry in
+                    showParticipants = false
+                    // 短延遲讓 sheet dismiss 完再開新 sheet
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        focusedUserID = entry.user.id
+                        showUserDetail = entry
+                    }
+                }
+            }
+        }
+        .sheet(item: $showUserDetail) { entry in
+            if let event = event {
+                W2MUserDetailView(entry: entry, event: event)
             }
         }
     }
@@ -98,33 +111,35 @@ struct W2MResultView: View {
     private func eventContent(_ event: W2MEvent, totalWidth: CGFloat) -> some View {
         let dateCount = event.uniqueDates.count
         let cw = cellWidth(totalWidth: totalWidth, dateCount: dateCount)
-        let needsHScroll = CGFloat(dateCount) * cw + timeColumnWidth > totalWidth
-        let headerH: CGFloat = 36
+        let totalContentWidth = CGFloat(dateCount) * cw
+        let needsHScroll = totalContentWidth + timeColumnWidth > totalWidth
         let gridH = CGFloat(times.count) * cellHeight
+        let rightTotalH = headerHeight + 1 + gridH
 
         VStack(spacing: 0) {
             Divider()
 
             W2MSyncScrollView(
                 leftWidth: timeColumnWidth,
-                contentHeight: gridH,
+                contentHeight: rightTotalH,
+                rightContentWidth: totalContentWidth,
                 enableHScroll: needsHScroll,
                 scrollDisabled: .constant(false),
                 leftContent: {
-                    // 左欄：時間軸
-                    timeColumn
+                    VStack(spacing: 0) {
+                        Color.clear.frame(width: timeColumnWidth, height: headerHeight + 1)
+                        timeColumn
+                    }
                 },
                 rightContent: {
-                    // 右欄：日期表頭 + 格子
                     VStack(spacing: 0) {
                         HStack(spacing: 0) {
                             ForEach(event.uniqueDates, id: \.self) { date in
                                 Text(shortDate(date))
                                     .font(.caption2).fontWeight(.semibold)
-                                    .frame(width: cw, height: headerH)
+                                    .frame(width: cw, height: headerHeight)
                                     .lineLimit(2).multilineTextAlignment(.center)
                             }
-                            if !needsHScroll { Spacer(minLength: 0) }
                         }
                         .background(Color(UIColor.secondarySystemBackground))
                         Divider()
@@ -132,7 +147,6 @@ struct W2MResultView: View {
                             ForEach(event.uniqueDates, id: \.self) { date in
                                 heatColumn(for: date, event: event, cellWidth: cw)
                             }
-                            if !needsHScroll { Spacer(minLength: 0) }
                         }
                     }
                 }
@@ -141,6 +155,10 @@ struct W2MResultView: View {
 
             if let slot = selectedSlot {
                 slotDetailBar(slot, event: event)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            } else if let uid = focusedUserID,
+                      let entry = event.availability.first(where: { $0.user.id == uid }) {
+                focusedUserBar(entry)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
             Divider()
@@ -151,21 +169,6 @@ struct W2MResultView: View {
     private func cellWidth(totalWidth: CGFloat, dateCount: Int) -> CGFloat {
         let natural = (totalWidth - timeColumnWidth) / CGFloat(max(dateCount, 1))
         return dateCount <= 5 ? max(natural, 52) : 64
-    }
-
-    // MARK: - Header（保留供舊呼叫，實際已不使用）
-    private func headerRow(_ event: W2MEvent, cellWidth: CGFloat) -> some View {
-        HStack(spacing: 0) {
-            Color.clear.frame(width: timeColumnWidth, height: 36)
-            ForEach(event.uniqueDates, id: \.self) { date in
-                Text(shortDate(date))
-                    .font(.caption2).fontWeight(.semibold)
-                    .frame(width: cellWidth, height: 36)
-                    .lineLimit(2).multilineTextAlignment(.center)
-            }
-            Spacer(minLength: 0)
-        }
-        .background(Color(UIColor.secondarySystemBackground))
     }
 
     // MARK: - Time Column
@@ -190,7 +193,6 @@ struct W2MResultView: View {
     // MARK: - Heat Column
 
     private func heatColumn(for date: String, event: W2MEvent, cellWidth: CGFloat) -> some View {
-        // 若有 focused user，取得他在這欄的 slots
         let focusedSlots: Set<String>? = focusedUserID.flatMap { uid in
             event.availability.first(where: { $0.user.id == uid }).map { Set($0.slots) }
         }
@@ -213,12 +215,10 @@ struct W2MResultView: View {
                     }
                     if !isSlotSelected {
                         if let focusedSlots, focusedSlots.contains(slot.label) {
-                            // focused 模式：顯示打勾
                             Image(systemName: "checkmark")
                                 .font(.system(size: 8, weight: .bold))
                                 .foregroundStyle(.white)
                         } else if focusedSlots == nil && count > 0 {
-                            // 正常熱力圖：顯示人數
                             Text("\(count)")
                                 .font(.system(size: 9, weight: .semibold))
                                 .foregroundStyle(ratio > 0.45 ? .white : Color(UIColor.label))
@@ -230,15 +230,10 @@ struct W2MResultView: View {
                     }
                 }
                 .frame(width: cellWidth, height: cellHeight)
+                .contentShape(Rectangle())
                 .onTapGesture {
                     withAnimation(.easeInOut(duration: 0.12)) {
-                        if focusedUserID != nil {
-                            // focused 模式下點格子清除 focus
-                            focusedUserID = nil
-                            selectedSlot = nil
-                        } else {
-                            selectedSlot = (selectedSlot == slot) ? nil : slot
-                        }
+                        selectedSlot = (selectedSlot == slot) ? nil : slot
                     }
                 }
             }
@@ -251,12 +246,10 @@ struct W2MResultView: View {
     private func cellBackground(ratio: Double, count: Int, slotSelected: Bool, focused: Bool, hasFocusedUser: Bool) -> Color {
         if slotSelected { return Color.blue.opacity(0.15) }
         if hasFocusedUser {
-            // focused 模式：有空=藍，沒空=灰底
             return focused
                 ? Color(hue: 0.6, saturation: 0.7, brightness: 0.9)
                 : Color(UIColor.systemBackground)
         }
-        // 正常熱力圖
         if count == 0 { return Color(UIColor.systemBackground) }
         let saturation = 0.30 + ratio * 0.70
         let brightness = 1.0 - ratio * 0.35
@@ -267,9 +260,6 @@ struct W2MResultView: View {
 
     private func slotDetailBar(_ slot: W2MSlot, event: W2MEvent) -> some View {
         let entries = event.availability.filter { $0.slots.contains(slot.label) }
-        let focusedEntry = focusedUserID.flatMap { uid in
-            entries.first(where: { $0.user.id == uid }) ?? event.availability.first(where: { $0.user.id == uid })
-        }
         return VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text("\(slot.dateString) \(slot.timeString)")
@@ -278,7 +268,6 @@ struct W2MResultView: View {
                 Text("\(entries.count) 人有空")
                     .font(.caption).foregroundStyle(entries.isEmpty ? Color.secondary : Color.green)
                     .fontWeight(.semibold)
-                // 點 ✕ 關閉
                 Button { withAnimation { selectedSlot = nil; focusedUserID = nil } } label: {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(Color.secondary)
@@ -287,14 +276,17 @@ struct W2MResultView: View {
             if entries.isEmpty {
                 Text("沒有人有空").font(.caption2).foregroundStyle(.secondary)
             } else {
-                // 可點擊的人名標籤
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
                         ForEach(entries, id: \.user.id) { entry in
                             let isFocused = focusedUserID == entry.user.id
                             Button {
                                 withAnimation(.easeInOut(duration: 0.15)) {
-                                    focusedUserID = isFocused ? nil : entry.user.id
+                                    if isFocused {
+                                        focusedUserID = nil
+                                    } else {
+                                        focusedUserID = entry.user.id
+                                    }
                                 }
                             } label: {
                                 HStack(spacing: 4) {
@@ -321,19 +313,39 @@ struct W2MResultView: View {
                         }
                     }
                 }
-                if let focusedEntry {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("正在查看：\(focusedEntry.user.displayName)")
-                            .font(.caption2)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(.secondary)
-                        Text("\(focusedEntry.slots.count) 個時段：\(focusedEntry.slots.sorted().prefix(4).joined(separator: "、"))\(focusedEntry.slots.count > 4 ? "…" : "")")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                    }
-                    .padding(.top, 2)
-                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(Color(UIColor.secondarySystemBackground))
+    }
+
+    // MARK: - Focused User Bar
+
+    private func focusedUserBar(_ entry: W2MUserAvailability) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("正在查看：\(entry.user.displayName)")
+                    .font(.caption).fontWeight(.semibold)
+                Text("\(entry.slots.count) 個時段有空")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button {
+                showUserDetail = entry
+            } label: {
+                Text("詳細")
+                    .font(.caption).fontWeight(.medium)
+                    .padding(.horizontal, 10).padding(.vertical, 4)
+                    .background(Color.blue)
+                    .foregroundStyle(.white)
+                    .clipShape(Capsule())
+            }
+            Button {
+                withAnimation { focusedUserID = nil }
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(Color.secondary)
             }
         }
         .padding(.horizontal, 16)
@@ -347,7 +359,6 @@ struct W2MResultView: View {
         let mySlots = currentUserSlots(in: event)
 
         return HStack {
-            // 參與者資訊，點擊展開完整名單
             Button {
                 showParticipants = true
             } label: {
@@ -437,7 +448,6 @@ struct W2MEditEventView: View {
     init(event: W2MEvent) {
         self.event = event
         _title = State(initialValue: event.title)
-        // 把現有日期轉成 DateComponents
         let cal = Calendar.current
         let initial: Set<DateComponents> = Set(event.dates.compactMap { str -> DateComponents? in
             guard let date = W2MEditEventView.df.date(from: str) else { return nil }
@@ -511,10 +521,11 @@ struct W2MEditEventView: View {
     }
 }
 
-// MARK: - 參與者名單 Sheet
+// MARK: - 參與者名單（點人查看時段）
 
 struct W2MParticipantsView: View {
     let event: W2MEvent
+    var onSelectUser: ((W2MUserAvailability) -> Void)?
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -528,30 +539,39 @@ struct W2MParticipantsView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     List(event.availability, id: \.user.id) { entry in
-                        HStack(spacing: 12) {
-                            // 頭像
-                            if let url = entry.user.avatarURL {
-                                CachedAsyncImage(url: url) { phase in
-                                    if case .success(let img) = phase {
-                                        img.resizable().scaledToFill()
-                                            .frame(width: 36, height: 36).clipShape(Circle())
-                                    } else {
-                                        Circle().fill(Color.secondary.opacity(0.2))
-                                            .frame(width: 36, height: 36)
-                                            .overlay(Image(systemName: "person").foregroundStyle(.secondary))
-                                    }
-                                }
-                            } else {
-                                Circle().fill(Color.secondary.opacity(0.2))
-                                    .frame(width: 36, height: 36)
-                                    .overlay(Image(systemName: "person").foregroundStyle(.secondary))
+                        Button {
+                            if let onSelectUser {
+                                onSelectUser(entry)
                             }
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(entry.user.displayName).font(.subheadline).fontWeight(.medium)
-                                Text("\(entry.slots.count) 個時段有空")
-                                    .font(.caption2).foregroundStyle(.secondary)
+                        } label: {
+                            HStack(spacing: 12) {
+                                if let url = entry.user.avatarURL {
+                                    CachedAsyncImage(url: url) { phase in
+                                        if case .success(let img) = phase {
+                                            img.resizable().scaledToFill()
+                                                .frame(width: 36, height: 36).clipShape(Circle())
+                                        } else {
+                                            Circle().fill(Color.secondary.opacity(0.2))
+                                                .frame(width: 36, height: 36)
+                                                .overlay(Image(systemName: "person").foregroundStyle(.secondary))
+                                        }
+                                    }
+                                } else {
+                                    Circle().fill(Color.secondary.opacity(0.2))
+                                        .frame(width: 36, height: 36)
+                                        .overlay(Image(systemName: "person").foregroundStyle(.secondary))
+                                }
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(entry.user.displayName).font(.subheadline).fontWeight(.medium)
+                                    Text("\(entry.slots.count) 個時段有空")
+                                        .font(.caption2).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption).foregroundStyle(.tertiary)
                             }
                         }
+                        .buttonStyle(.plain)
                         .padding(.vertical, 2)
                     }
                 }
@@ -564,5 +584,144 @@ struct W2MParticipantsView: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - 用戶時段詳細頁（時間表格式顯示某人有空的時段）
+
+struct W2MUserDetailView: View {
+    let entry: W2MUserAvailability
+    let event: W2MEvent
+    @Environment(\.dismiss) private var dismiss
+
+    private let cellHeight: CGFloat = 22
+    private let timeColWidth: CGFloat = 44
+    private let dateColWidth: CGFloat = 56
+
+    private var times: [String] {
+        (6..<24).flatMap { h in [0, 30].map { m in String(format: "%02d:%02d", h, m) } }
+    }
+
+    private var slotSet: Set<String> { Set(entry.slots) }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    // 用戶資訊
+                    HStack(spacing: 12) {
+                        if let url = entry.user.avatarURL {
+                            CachedAsyncImage(url: url) { phase in
+                                if case .success(let img) = phase {
+                                    img.resizable().scaledToFill()
+                                        .frame(width: 48, height: 48).clipShape(Circle())
+                                } else {
+                                    Circle().fill(Color.secondary.opacity(0.2))
+                                        .frame(width: 48, height: 48)
+                                        .overlay(Image(systemName: "person.fill").foregroundStyle(.secondary))
+                                }
+                            }
+                        } else {
+                            Circle().fill(Color.secondary.opacity(0.2))
+                                .frame(width: 48, height: 48)
+                                .overlay(Image(systemName: "person.fill").foregroundStyle(.secondary))
+                        }
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(entry.user.displayName)
+                                .font(.title3).fontWeight(.semibold)
+                            Text("\(entry.slots.count) 個時段有空")
+                                .font(.subheadline).foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.horizontal)
+
+                    // 時間表格
+                    ScrollView(.horizontal, showsIndicators: true) {
+                        VStack(spacing: 0) {
+                            // 表頭
+                            HStack(spacing: 0) {
+                                Text("")
+                                    .frame(width: timeColWidth, height: 32)
+                                ForEach(event.uniqueDates, id: \.self) { date in
+                                    Text(shortDate(date))
+                                        .font(.caption2).fontWeight(.semibold)
+                                        .frame(width: dateColWidth, height: 32)
+                                        .lineLimit(2).multilineTextAlignment(.center)
+                                }
+                            }
+                            .background(Color(UIColor.tertiarySystemBackground))
+
+                            Divider()
+
+                            // 格子
+                            ForEach(times, id: \.self) { time in
+                                HStack(spacing: 0) {
+                                    // 時間標籤
+                                    ZStack {
+                                        Color.clear.frame(width: timeColWidth, height: cellHeight)
+                                        if time.hasSuffix(":00") {
+                                            Text(time)
+                                                .font(.system(size: 9))
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
+                                    // 每天的格子
+                                    ForEach(event.uniqueDates, id: \.self) { date in
+                                        let label = "\(date) \(time)"
+                                        let available = slotSet.contains(label)
+                                        ZStack {
+                                            Rectangle()
+                                                .fill(available
+                                                      ? Color(hue: 0.6, saturation: 0.7, brightness: 0.9)
+                                                      : Color(UIColor.systemBackground))
+                                            if available {
+                                                Image(systemName: "checkmark")
+                                                    .font(.system(size: 8, weight: .bold))
+                                                    .foregroundStyle(.white)
+                                            }
+                                            if time.hasSuffix(":00") {
+                                                VStack {
+                                                    Divider()
+                                                    Spacer()
+                                                }
+                                            }
+                                        }
+                                        .frame(width: dateColWidth, height: cellHeight)
+                                        .overlay(alignment: .leading) {
+                                            Rectangle().fill(Color(UIColor.separator).opacity(0.3)).frame(width: 0.5)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color(UIColor.separator).opacity(0.3)))
+                    .padding(.horizontal)
+                }
+                .padding(.vertical)
+            }
+            .navigationTitle(entry.user.displayName)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private func shortDate(_ dateStr: String) -> String {
+        let parts = dateStr.split(separator: "-")
+        guard parts.count == 3, let m = Int(parts[1]), let d = Int(parts[2]) else { return dateStr }
+        var cal = Calendar(identifier: .gregorian)
+        cal.locale = Locale(identifier: "zh_TW")
+        var comps = DateComponents()
+        comps.year = Int(parts[0]); comps.month = m; comps.day = d
+        if let date = cal.date(from: comps) {
+            let names = ["日","一","二","三","四","五","六"]
+            return "\(m)/\(d)\n(\(names[cal.component(.weekday, from: date) - 1]))"
+        }
+        return "\(m)/\(d)"
     }
 }

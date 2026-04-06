@@ -30,6 +30,7 @@ class W2MScrollSyncCoordinator: NSObject, UIScrollViewDelegate {
 struct W2MSyncScrollView<LeftContent: View, RightContent: View>: UIViewControllerRepresentable {
     let leftWidth: CGFloat
     let contentHeight: CGFloat
+    let rightContentWidth: CGFloat   // 右欄內容實際寬度
     let enableHScroll: Bool
     @Binding var scrollDisabled: Bool
     let leftContent: () -> LeftContent
@@ -41,6 +42,7 @@ struct W2MSyncScrollView<LeftContent: View, RightContent: View>: UIViewControlle
         let vc = W2MSyncVC(
             leftWidth: leftWidth,
             contentHeight: contentHeight,
+            rightContentWidth: rightContentWidth,
             enableHScroll: enableHScroll,
             leftContent: leftContent,
             rightContent: rightContent,
@@ -58,6 +60,7 @@ struct W2MSyncScrollView<LeftContent: View, RightContent: View>: UIViewControlle
 class W2MSyncVC<LeftContent: View, RightContent: View>: UIViewController {
     let leftWidth: CGFloat
     let contentHeight: CGFloat
+    let rightContentWidth: CGFloat
     let enableHScroll: Bool
     let leftContentBuilder: () -> LeftContent
     let rightContentBuilder: () -> RightContent
@@ -66,12 +69,14 @@ class W2MSyncVC<LeftContent: View, RightContent: View>: UIViewController {
     let leftScrollView = UIScrollView()
     let rightScrollView = UIScrollView()
 
-    init(leftWidth: CGFloat, contentHeight: CGFloat, enableHScroll: Bool,
+    init(leftWidth: CGFloat, contentHeight: CGFloat, rightContentWidth: CGFloat,
+         enableHScroll: Bool,
          leftContent: @escaping () -> LeftContent,
          rightContent: @escaping () -> RightContent,
          coordinator: W2MScrollSyncCoordinator) {
         self.leftWidth = leftWidth
         self.contentHeight = contentHeight
+        self.rightContentWidth = rightContentWidth
         self.enableHScroll = enableHScroll
         self.leftContentBuilder = leftContent
         self.rightContentBuilder = rightContent
@@ -90,17 +95,13 @@ class W2MSyncVC<LeftContent: View, RightContent: View>: UIViewController {
         leftScrollView.showsVerticalScrollIndicator = false
         leftScrollView.showsHorizontalScrollIndicator = false
         leftScrollView.alwaysBounceVertical = true
-        leftScrollView.delaysContentTouches = false
-        leftScrollView.canCancelContentTouches = false
         leftScrollView.delegate = coordinator
 
         // 右側 ScrollView（垂直 + 水平）
         rightScrollView.showsVerticalScrollIndicator = true
         rightScrollView.showsHorizontalScrollIndicator = enableHScroll
         rightScrollView.alwaysBounceVertical = true
-        rightScrollView.alwaysBounceHorizontal = enableHScroll
-        rightScrollView.delaysContentTouches = false
-        rightScrollView.canCancelContentTouches = false
+        rightScrollView.alwaysBounceHorizontal = false
         rightScrollView.delegate = coordinator
 
         coordinator.left = leftScrollView
@@ -116,11 +117,13 @@ class W2MSyncVC<LeftContent: View, RightContent: View>: UIViewController {
         NSLayoutConstraint.activate([
             leftHost.view.topAnchor.constraint(equalTo: leftScrollView.contentLayoutGuide.topAnchor),
             leftHost.view.leadingAnchor.constraint(equalTo: leftScrollView.contentLayoutGuide.leadingAnchor),
+            leftHost.view.bottomAnchor.constraint(equalTo: leftScrollView.contentLayoutGuide.bottomAnchor),
+            leftHost.view.trailingAnchor.constraint(equalTo: leftScrollView.contentLayoutGuide.trailingAnchor),
             leftHost.view.widthAnchor.constraint(equalToConstant: leftWidth),
             leftHost.view.heightAnchor.constraint(equalToConstant: contentHeight),
         ])
 
-        // 右側內容
+        // 右側內容 — 四邊都約束到 contentLayoutGuide + 固定寬高，UIScrollView 才知道 contentSize
         let rightHost = UIHostingController(rootView: rightContentBuilder())
         rightHost.view.backgroundColor = .clear
         addChild(rightHost)
@@ -132,6 +135,8 @@ class W2MSyncVC<LeftContent: View, RightContent: View>: UIViewController {
             rightHost.view.leadingAnchor.constraint(equalTo: rightScrollView.contentLayoutGuide.leadingAnchor),
             rightHost.view.bottomAnchor.constraint(equalTo: rightScrollView.contentLayoutGuide.bottomAnchor),
             rightHost.view.trailingAnchor.constraint(equalTo: rightScrollView.contentLayoutGuide.trailingAnchor),
+            rightHost.view.widthAnchor.constraint(equalToConstant: rightContentWidth),
+            rightHost.view.heightAnchor.constraint(equalToConstant: contentHeight),
         ])
 
         view.addSubview(leftScrollView)

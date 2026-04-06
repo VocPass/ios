@@ -89,7 +89,8 @@ struct W2MEvent: Identifiable, Decodable {
     }
 }
 
-struct W2MUserAvailability: Decodable {
+struct W2MUserAvailability: Decodable, Identifiable {
+    var id: String { user.id }
     let user: W2MUserInfo
     let slots: [String]
 }
