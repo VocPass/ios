@@ -17,6 +17,7 @@ struct ContentView: View {
     @State private var showSchoolPicker = false
     @State private var schoolPickerDismissed = false
     @State private var deepLinkEventID: W2MDeepLinkTarget?
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Group {
@@ -69,6 +70,11 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .showSchoolPicker)) { _ in
             schoolPickerDismissed = false
             showSchoolPicker = true
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .background {
+                CacheService.shared.syncTimetableToWidget()
+            }
         }
     }
 }

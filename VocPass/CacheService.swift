@@ -312,8 +312,9 @@ class CacheService {
             let data = try JSONEncoder().encode(timetable)
             userDefaults.set(data, forKey: CacheKey.timetable.rawValue)
             sharedDefaults?.set(data, forKey: CacheKey.timetable.rawValue)
+            sharedDefaults?.synchronize()
             WidgetCenter.shared.reloadAllTimelines()
-            print("📦 [Cache] Saved timetable (\(timetable.entries.count) entries)")
+            print("📦 [Cache] Saved timetable (\(timetable.entries.count) entries, \(data.count) bytes to widget)")
         } catch {
             print("📦 [Cache] Failed to encode timetable: \(error)")
         }
@@ -328,20 +329,29 @@ class CacheService {
 
     /// 將已快取的課表同步到 App Group 共享容器，讓 widget 可以讀取。
     func syncTimetableToWidget() {
-        guard let data = userDefaults.data(forKey: CacheKey.timetable.rawValue) else { return }
-        sharedDefaults?.set(data, forKey: CacheKey.timetable.rawValue)
+        guard let shared = sharedDefaults else {
+            print("📦 [Cache] ⚠️ 無法取得 App Group UserDefaults，Widget 同步失敗")
+            return
+        }
+        guard let data = userDefaults.data(forKey: CacheKey.timetable.rawValue) else {
+            print("📦 [Cache] 沒有課表資料可同步到 Widget")
+            return
+        }
+        shared.set(data, forKey: CacheKey.timetable.rawValue)
 
         if let manualData = userDefaults.data(forKey: CacheKey.manualCurriculum.rawValue) {
-            sharedDefaults?.set(manualData, forKey: CacheKey.manualCurriculum.rawValue)
+            shared.set(manualData, forKey: CacheKey.manualCurriculum.rawValue)
         }
         if let periodData = userDefaults.data(forKey: CacheKey.manualPeriodTimes.rawValue) {
-            sharedDefaults?.set(periodData, forKey: CacheKey.manualPeriodTimes.rawValue)
+            shared.set(periodData, forKey: CacheKey.manualPeriodTimes.rawValue)
         }
         if let rtData = userDefaults.data(forKey: CacheKey.manualRoomTeacher.rawValue) {
-            sharedDefaults?.set(rtData, forKey: CacheKey.manualRoomTeacher.rawValue)
+            shared.set(rtData, forKey: CacheKey.manualRoomTeacher.rawValue)
         }
 
+        shared.synchronize()
         WidgetCenter.shared.reloadAllTimelines()
+        print("📦 [Cache] 已同步課表到 Widget（\(data.count) bytes）")
     }
 
     // MARK: - Cache Info

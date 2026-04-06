@@ -24,11 +24,33 @@ private struct WTimetableEntry: Codable {
     let subject: String
     let room: String?
     let teacher: String?
+
+    // 主 app 的 TimetableEntry 會 encode `id`，這裡用可選欄位接住以避免 decode 失敗
+    let id: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case weekday, period, subject, room, teacher, id
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        weekday = try c.decode(String.self, forKey: .weekday)
+        period  = try c.decode(String.self, forKey: .period)
+        subject = try c.decode(String.self, forKey: .subject)
+        room    = try c.decodeIfPresent(String.self, forKey: .room)
+        teacher = try c.decodeIfPresent(String.self, forKey: .teacher)
+        id      = try c.decodeIfPresent(String.self, forKey: .id)
+    }
 }
 
 private struct WTimetableData: Codable {
     let entries: [WTimetableEntry]
     let periodTimes: [String: WPeriodTime]
+
+    // 主 app 的 TimetableData 會 encode `curriculum`，忽略它但接住避免 decode 失敗
+    private enum CodingKeys: String, CodingKey {
+        case entries, periodTimes
+    }
 }
 
 // MARK: - Schedule Slot
@@ -126,9 +148,23 @@ private func weekdayChineseLabel(for date: Date) -> String {
 // MARK: - Data Loading
 
 private func loadTimetable() -> WTimetableData? {
-    guard let defaults = UserDefaults(suiteName: kAppGroupID),
-          let data = defaults.data(forKey: "cached_timetable") else { return nil }
-    return try? JSONDecoder().decode(WTimetableData.self, from: data)
+    guard let defaults = UserDefaults(suiteName: kAppGroupID) else {
+        print("🔲 [Widget] ⚠️ 無法取得 App Group UserDefaults")
+        return nil
+    }
+    defaults.synchronize()
+    guard let data = defaults.data(forKey: "cached_timetable") else {
+        print("🔲 [Widget] 沒有找到 cached_timetable 資料")
+        return nil
+    }
+    do {
+        let result = try JSONDecoder().decode(WTimetableData.self, from: data)
+        print("🔲 [Widget] 成功載入課表（\(result.entries.count) 筆）")
+        return result
+    } catch {
+        print("🔲 [Widget] 課表 decode 失敗: \(error)")
+        return nil
+    }
 }
 
 private func loadManualCurriculum() -> [String: String] {
