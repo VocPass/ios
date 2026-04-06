@@ -28,6 +28,7 @@ struct YKVSApp: App {
         }
 
         if let cachedTimetable = CacheService.shared.getCachedTimetable() {
+            CacheService.shared.syncTimetableToWidget()
             Task { @MainActor in
                 DynamicIslandService.shared.setTimetable(cachedTimetable)
             }
@@ -59,6 +60,7 @@ struct YKVSApp: App {
             let di = DynamicIslandService.shared
             switch phase {
             case .active:
+                CacheService.shared.syncTimetableToWidget()
                 di.reconnectIfNeeded()
                 if !di.isActivityRunning {
                     di.autoStartIfNeeded()
