@@ -31,6 +31,7 @@ final class DynamicIslandService: ObservableObject {
     private var activity: Activity<ClassScheduleActivityAttributes>?
     private var pushTokenTask: Task<Void, Never>?
     private var pushToStartTask: Task<Void, Never>?
+    private var uploadDebounceTask: Task<Void, Never>?
     private var timetable: TimetableData?
 
     static let periodOrder: [String: Int] = [
@@ -399,10 +400,19 @@ final class DynamicIslandService: ObservableObject {
 
     // MARK: - 上傳 Token + 課表到伺服器
 
-    /// 上傳裝置 token 到伺服器。
+    /// 上傳裝置 token 到伺服器（自動 debounce，短時間內多次呼叫只會實際送出一次）。
     /// 未登入時：上傳 APNs / Live Activity token（無 auth）。
     /// 已登入時：額外附加 auth header 與課表資料。
     func uploadTokensToServer() {
+        uploadDebounceTask?.cancel()
+        uploadDebounceTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 秒 debounce
+            guard !Task.isCancelled else { return }
+            self._doUploadTokensToServer()
+        }
+    }
+
+    private func _doUploadTokensToServer() {
         let deviceToken = UIDevice.current.identifierForVendor?.uuidString ?? ""
         guard !deviceToken.isEmpty else { return }
 

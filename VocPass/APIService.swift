@@ -16,6 +16,7 @@ class APIService: ObservableObject {
 
     @Published var cookies: [HTTPCookie] = []
     @Published var isLoggedIn = false
+    @Published var isPinging = false
 
     private let urlSession: URLSession = {
         let config = URLSessionConfiguration.default
@@ -618,6 +619,9 @@ class APIService: ObservableObject {
 
     // MARK: - Ping（驗證 session 是否仍有效）
     func pingAndRestoreSession() async -> Bool {
+        await MainActor.run { self.isPinging = true }
+        defer { Task { @MainActor in self.isPinging = false } }
+
         let savedCookies = CacheService.shared.loadCookies()
         guard !savedCookies.isEmpty,
               let school = SchoolConfigManager.shared.selectedSchool else {

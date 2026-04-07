@@ -171,7 +171,15 @@ struct SchoolAffairsView: View {
                     }
                 } else {
                     List {
-                        if !apiService.isLoggedIn {
+                        if apiService.isPinging {
+                            Section {
+                                HStack(spacing: 8) {
+                                    ProgressView()
+                                    Text("正在確認登入狀態⋯")
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        } else if !apiService.isLoggedIn {
                             Section {
                                 Button {
                                     showLogin = true

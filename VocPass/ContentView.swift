@@ -57,11 +57,12 @@ struct ContentView: View {
             }
             Task {
                 await VocPassAuthService.shared.restoreSession()
+                await MainActor.run { isCheckingSession = false }
+                // Ping 在背景執行，不阻擋 UI
                 if hasSeenOnboarding && hasSelectedSchool {
                     await apiService.pingAndRestoreSession()
                     CacheService.shared.syncTimetableToWidget()
                 }
-                await MainActor.run { isCheckingSession = false }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .schoolChanged)) { _ in
