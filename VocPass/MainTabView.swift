@@ -8,6 +8,7 @@
 import SwiftUI
 import PhotosUI
 import SafariServices
+import UserNotifications
 
 struct MainTabView: View {
     @EnvironmentObject var apiService: APIService
@@ -501,6 +502,7 @@ struct SchoolSettingsView: View {
     @State private var showCookies = false
     @State private var autoStart = CacheService.shared.autoStartDynamicIsland
     @State private var showLoginRequiredAlert = false
+    @State private var showNotificationDeniedAlert = false
     @State private var weeksPerSemester = CacheService.shared.weeksPerSemester
     @State private var periodsPerDay = CacheService.shared.periodsPerDay
     @AppStorage("absence_threshold_is_half") private var absenceThresholdIsHalf = false
@@ -560,20 +562,54 @@ struct SchoolSettingsView: View {
                         showLoginRequiredAlert = true
                         return
                     }
-                    CacheService.shared.autoStartDynamicIsland = newValue
                     if newValue {
-                        dynamicIsland.scheduleAutoStart()
-                        dynamicIsland.autoStartIfNeeded()
+                        Task {
+                            let center = UNUserNotificationCenter.current()
+                            let settings = await center.notificationSettings()
+                            if settings.authorizationStatus == .notDetermined {
+                                let granted = (try? await center.requestAuthorization(options: [.alert, .sound, .badge])) ?? false
+                                if !granted {
+                                    await MainActor.run {
+                                        autoStart = false
+                                        showNotificationDeniedAlert = true
+                                    }
+                                    return
+                                }
+                            } else if settings.authorizationStatus == .denied {
+                                await MainActor.run {
+                                    autoStart = false
+                                    showNotificationDeniedAlert = true
+                                }
+                                return
+                            }
+                            await MainActor.run {
+                                CacheService.shared.autoStartDynamicIsland = true
+                                dynamicIsland.scheduleAutoStart()
+                                dynamicIsland.autoStartIfNeeded()
+                                dynamicIsland.uploadTokensToServer()
+                            }
+                        }
                     } else {
+                        CacheService.shared.autoStartDynamicIsland = false
                         dynamicIsland.cancelAutoStart()
                         dynamicIsland.endActivity()
+                        dynamicIsland.uploadTokensToServer()
                     }
-                    dynamicIsland.uploadTokensToServer()
                 }
                 .alert("請先登入 VocPass", isPresented: $showLoginRequiredAlert) {
                     Button("確定", role: .cancel) {}
                 } message: {
                     Text("啟用即時動態需要登入 VocPass 帳號。")
+                }
+                .alert("需要通知權限", isPresented: $showNotificationDeniedAlert) {
+                    Button("前往設定") {
+                        if let url = URL(string: UIApplication.openSettingsURLString) {
+                            UIApplication.shared.open(url)
+                        }
+                    }
+                    Button("取消", role: .cancel) {}
+                } message: {
+                    Text("即時動態需要推播通知權限才能運作，請至「設定」開啟通知。")
                 }
 
 
