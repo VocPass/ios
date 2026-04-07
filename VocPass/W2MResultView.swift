@@ -415,18 +415,7 @@ struct W2MResultView: View {
 
     private func currentUserSlots(in event: W2MEvent) -> [String] {
         guard let user = vocPassAuth.currentUser else { return [] }
-        let identifiers = Set([
-            user.id,
-            user.username,
-            user.name,
-            user.displayName
-        ].map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }.filter { !$0.isEmpty })
-
-        return event.availability.first(where: { entry in
-            let candidates = [entry.user.id, entry.user.name, entry.user.displayName]
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
-            return candidates.contains(where: identifiers.contains)
-        })?.slots ?? []
+        return event.availability.first(where: { $0.user.id == user.id })?.slots ?? []
     }
 }
 
