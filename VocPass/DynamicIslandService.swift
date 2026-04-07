@@ -26,7 +26,13 @@ final class DynamicIslandService: ObservableObject {
     @Published var lastErrorMessage: String?
     @Published var pushTokenHex: String?
     @Published var pushToStartTokenHex: String?
-    @Published var apnsDeviceTokenHex: String?
+    @Published var apnsDeviceTokenHex: String? {
+        didSet { if let apnsDeviceTokenHex { UserDefaults.standard.set(apnsDeviceTokenHex, forKey: "apnsDeviceTokenHex") } }
+    }
+
+    private init() {
+        self.apnsDeviceTokenHex = UserDefaults.standard.string(forKey: "apnsDeviceTokenHex")
+    }
 
     private var activity: Activity<ClassScheduleActivityAttributes>?
     private var pushTokenTask: Task<Void, Never>?
