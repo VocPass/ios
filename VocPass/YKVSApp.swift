@@ -62,7 +62,9 @@ struct YKVSApp: App {
             case .active:
                 CacheService.shared.syncTimetableToWidget()
                 di.reconnectIfNeeded()
-                if !di.isActivityRunning {
+                if di.isActivityRunning {
+                    di.updateActivity()
+                } else {
                     di.autoStartIfNeeded()
                 }
                 di.uploadTokensToServer()

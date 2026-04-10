@@ -227,7 +227,14 @@ final class DynamicIslandService: ObservableObject {
 
         let now = Date()
 
-        if !isActivityRunning && CacheService.shared.autoStartDynamicIsland {
+        if isActivityRunning {
+            updateActivity()
+            scheduleNextBGRefresh(after: now)
+            task.setTaskCompleted(success: true)
+            return
+        }
+
+        if CacheService.shared.autoStartDynamicIsland {
             let state = makeContentState(at: now)
             if !state.currentSubject.isEmpty || !state.nextSubject.isEmpty {
                 Task {

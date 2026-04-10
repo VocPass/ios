@@ -36,6 +36,8 @@
 	</array>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>顯示附近餐廳距離並在地圖上排序</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>儲存產生的課表桌布到相簿</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>UILaunchScreen</key>

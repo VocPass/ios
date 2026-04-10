@@ -109,6 +109,18 @@ struct HomePageView: View {
                 .buttonStyle(.plain)
                 .padding(.horizontal, 32)
 
+                NavigationLink(destination: WallpaperTemplateListView()) {
+                    Label("課表產生器", systemImage: "wand.and.stars")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.pink.opacity(0.12))
+                        .foregroundStyle(Color.pink)
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 32)
+
                 NavigationLink(destination: RestaurantView()) {
                     Label("吃啥？", systemImage: "fork.knife")
                         .font(.headline)
@@ -318,7 +330,7 @@ struct SettingsView: View {
 
                 Section("儲存空間") {
                     HStack {
-                        Label("圖片快取", systemImage: "photo.stack")
+                        Label("圖片與下載項目快取", systemImage: "externaldrive")
                         Spacer()
                         Text(imageCacheSize)
                             .foregroundColor(.secondary)
@@ -327,10 +339,11 @@ struct SettingsView: View {
                     Button(role: .destructive) {
                         Task {
                             await ImageCacheService.shared.clearCache()
+                            URLCache.shared.removeAllCachedResponses()
                             await refreshCacheSize()
                         }
                     } label: {
-                        Label("清除圖片快取", systemImage: "trash")
+                        Label("清除所有快取", systemImage: "trash")
                     }
                 }
 
@@ -393,7 +406,10 @@ struct SettingsView: View {
     }
 
     private func refreshCacheSize() async {
-        let bytes = await ImageCacheService.shared.cacheSize()
+        let imageBytes = await ImageCacheService.shared.cacheSize()
+        let urlBytes = Int64(URLCache.shared.currentDiskUsage + URLCache.shared.currentMemoryUsage)
+        let bytes = imageBytes + urlBytes
+        
         let formatter = ByteCountFormatter()
         formatter.allowedUnits = [.useKB, .useMB]
         formatter.countStyle = .file
