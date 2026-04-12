@@ -19,27 +19,59 @@ struct WallpaperTemplate: Identifiable, Decodable {
     let preview: String
     let images: WallpaperImages
     let top: Double      // table 距離上方的距離（百分比）
-    let left: Double     // 左右最小間距（點）
-    let right: Double
     let stickers: Int    // 預設要隨機生成的貼圖數
     let fontSize: Double?
     let fontColor: String?
     let fontFamily: String?
+    let tableOpacity: Double?
 
     enum CodingKeys: String, CodingKey {
         case name, author
         case authorURL = "author_url"
-        case preview, images, top, left, right, stickers
+        case preview, images, top, stickers
         case fontSize = "font_size"
         case fontColor = "font_color"
         case fontFamily = "font_family"
+        case tableOpacity = "table_opacity"
+    }
+}
+
+struct WallpaperTableConfig: Decodable {
+    var images: [String]
+    var left: Double       // 左右最小間距（原圖像素）
+    var right: Double
+    var topInset: Double?  // 文字格上方內縮（原圖像素）
+    var bottom: Double?    // 文字格下方內縮（原圖像素）
+
+    enum CodingKeys: String, CodingKey {
+        case images, left, right
+        case topInset = "top_inset"
+        case bottom
     }
 }
 
 struct WallpaperImages: Decodable {
     let background: [String]
     let stickers: [String]
-    let table: [String: [String]]   // period count → table 圖片清單
+    let table: [String: WallpaperTableConfig]   // period count → config
+
+    enum CodingKeys: String, CodingKey {
+        case background, stickers, table
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        background = try c.decode([String].self, forKey: .background)
+        stickers = try c.decode([String].self, forKey: .stickers)
+        // 相容新舊格式：新格式 { images, left, right, ... }，舊格式 [String]
+        if let newFormat = try? c.decode([String: WallpaperTableConfig].self, forKey: .table) {
+            table = newFormat
+        } else if let oldFormat = try? c.decode([String: [String]].self, forKey: .table) {
+            table = oldFormat.mapValues { WallpaperTableConfig(images: $0, left: 30, right: 30, topInset: nil, bottom: nil) }
+        } else {
+            table = [:]
+        }
+    }
 }
 
 // MARK: - 模板列表
@@ -146,10 +178,19 @@ private struct TemplateCard: View {
             Text(template.name)
                 .font(.headline)
                 .lineLimit(1)
-            Text("by \(template.author)")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+            if let urlStr = template.authorURL, let url = URL(string: urlStr) {
+                Link(destination: url) {
+                    Text("by \(template.author)")
+                        .font(.caption)
+                        .foregroundStyle(.blue)
+                        .lineLimit(1)
+                }
+            } else {
+                Text("by \(template.author)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
         }
     }
 }
@@ -176,6 +217,8 @@ private struct EditorLayer: Identifiable {
     var baseFontSize: CGFloat = 14 // textGroup 專用：字體大小（不隨群組縮放而改變）
     var fontColorHex: String = "#000000"  // textGroup 專用
     var fontFamily: String = "Noto"       // textGroup 專用（API 回傳的 display name）
+    var tableOpacity: Double = 1.0        // table 專用：課表圖片透明度 0~1
+    var tableConfig: WallpaperTableConfig? // table 專用：該節次的間距設定
 }
 
 struct WallpaperEditorView: View {
@@ -201,6 +244,9 @@ struct WallpaperEditorView: View {
     @State private var fontList: [String: String] = [:]   // display → URL
     @State private var fontRefreshTick: Int = 0           // 觸發字型載入完成後重繪
     @State private var showSavedAlert = false
+    @State private var showDebugInsets = false
+    @State private var currentPeriodCount: Int = 0  // 目前選用的節數（0 = 自動偵測）
+    @State private var isLoadingFont = false
 
     var body: some View {
         GeometryReader { geo in
@@ -211,7 +257,7 @@ struct WallpaperEditorView: View {
                 if isLoading {
                     VStack(spacing: 12) {
                         ProgressView().tint(.white)
-                        Text("緩存資源中⋯").foregroundStyle(.white)
+                        Text("正在施加魔法⋯").foregroundStyle(.white)
                     }
                 } else if let err = loadError {
                     VStack(spacing: 12) {
@@ -287,13 +333,16 @@ struct WallpaperEditorView: View {
                         get: { layers[idx].fontFamily },
                         set: { newValue in
                             Task { @MainActor in
+                                isLoadingFont = true
                                 _ = await FontLoader.shared.load(displayName: newValue)
                                 layers[idx].fontFamily = newValue
                                 fontRefreshTick &+= 1
+                                isLoadingFont = false
                             }
                         }
                     ),
-                    fontList: fontList
+                    fontList: fontList,
+                    isLoadingFont: $isLoadingFont
                 )
             }
         }
@@ -307,6 +356,40 @@ struct WallpaperEditorView: View {
                     },
                     onAddSticker: {
                         addRandomSticker()
+                    }
+                )
+            }
+        }
+        .sheet(isPresented: $showDebugInsets) {
+            if let id = selectedLayerID,
+               let idx = layers.firstIndex(where: { $0.id == id }),
+               layers[idx].kind == .table {
+                DebugInsetsSheet(
+                    imageSize: layers[idx].image?.size ?? .zero,
+                    left: Binding(
+                        get: { layers[idx].tableConfig?.left ?? 0 },
+                        set: { layers[idx].tableConfig?.left = $0 }
+                    ),
+                    right: Binding(
+                        get: { layers[idx].tableConfig?.right ?? 0 },
+                        set: { layers[idx].tableConfig?.right = $0 }
+                    ),
+                    topInset: Binding(
+                        get: { layers[idx].tableConfig?.topInset ?? 0 },
+                        set: { layers[idx].tableConfig?.topInset = $0 }
+                    ),
+                    bottom: Binding(
+                        get: { layers[idx].tableConfig?.bottom ?? 0 },
+                        set: { layers[idx].tableConfig?.bottom = $0 }
+                    ),
+                    tableOpacity: Binding(
+                        get: { layers[idx].tableOpacity },
+                        set: { layers[idx].tableOpacity = $0 }
+                    ),
+                    availablePeriods: template.images.table.keys.compactMap { Int($0) }.sorted(),
+                    currentPeriodCount: $currentPeriodCount,
+                    onPeriodChange: { newCount in
+                        Task { await switchPeriodCount(to: newCount) }
                     }
                 )
             }
@@ -358,14 +441,17 @@ struct WallpaperEditorView: View {
             // 2. 決定 N（節數）
             let timetable = CacheService.shared.getCachedTimetable()
             let userMaxPeriod = computeUserMaxPeriod(timetable: timetable)
-            let chosenKey = pickTableKey(userMaxPeriod: userMaxPeriod)
-            guard let tableURLs = template.images.table[chosenKey],
-                  let firstTable = tableURLs.first,
+            guard let chosenKey = pickTableKey(userMaxPeriod: userMaxPeriod),
+                  let tableConfig = template.images.table[chosenKey],
+                  let firstTable = tableConfig.images.first,
                   let tableURL = URL(string: firstTable)
             else {
+                let available = template.images.table.keys.compactMap { Int($0) }.sorted()
+                let maxAvail = available.last.map { "\($0)" } ?? "?"
                 throw NSError(domain: "Wallpaper", code: -1,
-                              userInfo: [NSLocalizedDescriptionKey: "找不到 \(chosenKey) 節的課表圖"])
+                              userInfo: [NSLocalizedDescriptionKey: "此模板最多支援 \(maxAvail) 節，沒有對應 \(userMaxPeriod) 節的課表模板"])
             }
+            let tableURLs = tableConfig.images
             let tableImg = try await ImageCacheService.shared.image(for: tableURL)
             let rows = Int(chosenKey) ?? userMaxPeriod
 
@@ -412,8 +498,8 @@ struct WallpaperEditorView: View {
             if let fs = template.fontSize {
                 baseFont = CGFloat(fs)
             } else {
-                let initLeftInset = CGFloat(template.left) * (tableW / max(1, tableImg.size.width))
-                let initRightInset = CGFloat(template.right) * (tableW / max(1, tableImg.size.width))
+                let initLeftInset = CGFloat(tableConfig.left) * (tableW / max(1, tableImg.size.width))
+                let initRightInset = CGFloat(tableConfig.right) * (tableW / max(1, tableImg.size.width))
                 let initUsableW = max(0, tableW - initLeftInset - initRightInset)
                 let initCellW = initUsableW / 5
                 let initCellH = tableH / CGFloat(max(rows, 1))
@@ -430,7 +516,9 @@ struct WallpaperEditorView: View {
                 rows: rows,
                 baseFontSize: baseFont,
                 fontColorHex: template.fontColor ?? "#000000",
-                fontFamily: template.fontFamily ?? "Noto"
+                fontFamily: template.fontFamily ?? "Noto",
+                tableOpacity: template.tableOpacity ?? 1.0,
+                tableConfig: tableConfig
             ))
 
             // 隨機貼圖
@@ -456,6 +544,7 @@ struct WallpaperEditorView: View {
 
             await MainActor.run {
                 self.layers = newLayers
+                self.currentPeriodCount = rows
                 self.isLoading = false
             }
 
@@ -490,6 +579,61 @@ struct WallpaperEditorView: View {
         }
     }
 
+    // MARK: - 切換節數
+
+    private func switchPeriodCount(to newCount: Int) async {
+        let key = "\(newCount)"
+        guard let tableConfig = template.images.table[key],
+              let firstURL = tableConfig.images.first,
+              let url = URL(string: firstURL) else { return }
+        guard let tableImg = try? await ImageCacheService.shared.image(for: url) else { return }
+        // 預熱其他變體
+        for s in tableConfig.images.dropFirst() {
+            if let u = URL(string: s) { _ = try? await ImageCacheService.shared.image(for: u) }
+        }
+        let timetable = CacheService.shared.getCachedTimetable()
+        let subjects = buildSubjectGrid(timetable: timetable, rows: newCount)
+        await MainActor.run {
+            currentPeriodCount = newCount
+            guard let idx = layers.firstIndex(where: { $0.kind == .table }) else { return }
+            let oldLayer = layers[idx]
+            let tableW = oldLayer.size.width
+            let tableH = tableW * (tableImg.size.height / max(1, tableImg.size.width))
+            let tableTop = canvasSize.height * CGFloat(template.top / 100.0)
+            let tableCenter = CGPoint(x: canvasSize.width / 2, y: tableTop + tableH / 2)
+            let baseFont: CGFloat
+            if let fs = template.fontSize {
+                baseFont = CGFloat(fs)
+            } else {
+                let initLeftInset = CGFloat(tableConfig.left) * (tableW / max(1, tableImg.size.width))
+                let initRightInset = CGFloat(tableConfig.right) * (tableW / max(1, tableImg.size.width))
+                let initUsableW = max(0, tableW - initLeftInset - initRightInset)
+                let initCellW = initUsableW / 5
+                let initCellH = tableH / CGFloat(max(newCount, 1))
+                baseFont = max(8, min(initCellW, initCellH) * 0.32)
+            }
+            var newLayer = EditorLayer(
+                kind: .table,
+                image: tableImg,
+                sourceURLs: tableConfig.images,
+                sourceIndex: 0,
+                center: tableCenter,
+                size: CGSize(width: tableW, height: tableH),
+                subjects: subjects,
+                rows: newCount,
+                baseFontSize: baseFont,
+                fontColorHex: oldLayer.fontColorHex,
+                fontFamily: oldLayer.fontFamily,
+                tableOpacity: oldLayer.tableOpacity,
+                tableConfig: tableConfig
+            )
+            let wasSelected = (selectedLayerID == oldLayer.id)
+            layers[idx] = newLayer
+            if wasSelected { selectedLayerID = newLayer.id }
+            fontRefreshTick &+= 1
+        }
+    }
+
     // MARK: - 課表 helpers
 
     private static let chineseNum: [String: Int] = [
@@ -515,22 +659,51 @@ struct WallpaperEditorView: View {
         return maxP > 0 ? maxP : 8
     }
 
-    private func pickTableKey(userMaxPeriod: Int) -> String {
+    /// 回傳 nil 表示超出模板支援的最大節數
+    private func pickTableKey(userMaxPeriod: Int) -> String? {
         let available = template.images.table.keys.compactMap { Int($0) }.sorted()
-        guard !available.isEmpty else { return "\(userMaxPeriod)" }
+        guard !available.isEmpty else { return nil }
+        // 小於最小值 → 用最小的
+        if userMaxPeriod <= available.first! { return "\(available.first!)" }
+        // 剛好有對應的
         if let exact = available.first(where: { $0 == userMaxPeriod }) { return "\(exact)" }
+        // 大於最大值 → 沒有對應模板
+        if userMaxPeriod > available.last! { return nil }
+        // 介於中間 → 取最接近且 >= 的
         if let bigger = available.first(where: { $0 >= userMaxPeriod }) { return "\(bigger)" }
-        return "\(available.last!)"
+        return nil
     }
 
-    private func buildSubjectGrid(timetable: TimetableData?, rows: Int) -> [[String]] {
+    private static let placeholderSubjects = [
+        "國文","英文","數學","物理","化學","生物","地科",
+        "歷史","地理","公民","體育","音樂","美術","資訊",
+        "健護","家政","生科","國防","輔導","社團","班會"
+    ]
+
+    private func buildSubjectGrid(timetable: TimetableData?, rows: Int, fillPlaceholder: Bool = true) -> [[String]] {
         var grid: [[String]] = Array(repeating: Array(repeating: "", count: 5), count: rows)
-        guard let t = timetable else { return grid }
-        for r in 0..<rows {
-            let periodKey = Self.periodNames[r]
-            for (c, weekday) in Self.weekdays.enumerated() {
-                let subject = lookupSubject(t, weekday: weekday, period: periodKey)
-                grid[r][c] = subject
+        if let t = timetable {
+            for r in 0..<rows {
+                guard r < Self.periodNames.count else { break }
+                let periodKey = Self.periodNames[r]
+                for (c, weekday) in Self.weekdays.enumerated() {
+                    let subject = lookupSubject(t, weekday: weekday, period: periodKey)
+                    grid[r][c] = subject
+                }
+            }
+        }
+        // 空格用隨機佔位科目填充
+        if fillPlaceholder {
+            var shuffled = Self.placeholderSubjects.shuffled()
+            var idx = 0
+            for r in 0..<rows {
+                for c in 0..<5 {
+                    if grid[r][c].isEmpty {
+                        grid[r][c] = shuffled[idx % shuffled.count]
+                        idx += 1
+                        if idx % shuffled.count == 0 { shuffled.shuffle() }
+                    }
+                }
             }
         }
         return grid
@@ -570,6 +743,7 @@ struct WallpaperEditorView: View {
                             .resizable()
                             .scaledToFit()
                             .frame(width: layer.size.width, height: layer.size.height)
+                            .opacity(layer.tableOpacity)
                     }
                     textGridView(layer)
                 }
@@ -629,8 +803,6 @@ struct WallpaperEditorView: View {
         )
         .onTapGesture {
             selectedLayerID = layer.id
-            pickerTargetID = layer.id
-            showImagePicker = true
         }
     }
 
@@ -644,33 +816,41 @@ struct WallpaperEditorView: View {
     @ViewBuilder
     private func textGridView(_ layer: EditorLayer) -> some View {
         let rows = max(layer.rows, 1)
-        let cellH = layer.size.height / CGFloat(rows)
-        let leftInset = scaledInset(template.left, layer: layer)
-        let rightInset = scaledInset(template.right, layer: layer)
+        let tc = layer.tableConfig
+        let leftInset = scaledInset(tc?.left ?? 0, layer: layer)
+        let rightInset = scaledInset(tc?.right ?? 0, layer: layer)
+        let topInset = scaledInset(tc?.topInset ?? 0, layer: layer)
+        let bottomInset = scaledInset(tc?.bottom ?? 0, layer: layer)
         let usableW = max(0, layer.size.width - leftInset - rightInset)
+        let usableH = max(0, layer.size.height - topInset - bottomInset)
         let cellW = usableW / 5
+        let cellH = usableH / CGFloat(rows)
         let fontSize = layer.baseFontSize
         let textColor = Color(hex: layer.fontColorHex)
         let psName = FontLoader.shared.postScriptName(for: layer.fontFamily)
-        HStack(spacing: 0) {
-            Spacer().frame(width: leftInset)
-            VStack(spacing: 0) {
-                ForEach(0..<rows, id: \.self) { r in
-                    HStack(spacing: 0) {
-                        ForEach(0..<5, id: \.self) { c in
-                            Text(layer.subjects[safe: r]?[safe: c] ?? "")
-                                .font(psName.map { Font.custom($0, size: fontSize) }
-                                      ?? .system(size: fontSize, weight: .medium))
-                                .foregroundStyle(textColor)
-                                .multilineTextAlignment(.center)
-                                .lineLimit(2)
-                                .minimumScaleFactor(0.5)
-                                .frame(width: cellW, height: cellH)
+        VStack(spacing: 0) {
+            Spacer().frame(height: topInset)
+            HStack(spacing: 0) {
+                Spacer().frame(width: leftInset)
+                VStack(spacing: 0) {
+                    ForEach(0..<rows, id: \.self) { r in
+                        HStack(spacing: 0) {
+                            ForEach(0..<5, id: \.self) { c in
+                                Text(layer.subjects[safe: r]?[safe: c] ?? "")
+                                    .font(psName.map { Font.custom($0, size: fontSize) }
+                                          ?? .system(size: fontSize, weight: .medium))
+                                    .foregroundStyle(textColor)
+                                    .multilineTextAlignment(.center)
+                                    .lineLimit(2)
+                                    .minimumScaleFactor(0.5)
+                                    .frame(width: cellW, height: cellH)
+                            }
                         }
                     }
                 }
+                Spacer().frame(width: rightInset)
             }
-            Spacer().frame(width: rightInset)
+            Spacer().frame(height: bottomInset)
         }
         .frame(width: layer.size.width, height: layer.size.height, alignment: .top)
         .id("\(layer.fontFamily)-\(fontRefreshTick)")
@@ -702,6 +882,11 @@ struct WallpaperEditorView: View {
                     } label: {
                         Label("文字", systemImage: "textformat")
                     }
+                    Button {
+                        showDebugInsets = true
+                    } label: {
+                        Label("進階", systemImage: "tablecells")
+                    }
                 }
                 if layer.kind == .sticker {
                     Button(role: .destructive) {
@@ -711,8 +896,19 @@ struct WallpaperEditorView: View {
                     }
                 }
             } else {
+                Button {
+                    addRandomSticker()
+                } label: {
+                    Label("新增貼圖", systemImage: "plus.circle")
+                }
+                Button {
+                    photoTargetID = nil
+                    showPhotoPicker = true
+                } label: {
+                    Label("從相簿", systemImage: "photo.on.rectangle")
+                }
                 Spacer()
-                Text("點選圖層即可更換圖片")
+                Text("點選圖層即可編輯")
                     .font(.caption)
                     .foregroundStyle(.white.opacity(0.7))
                 Spacer()
@@ -748,11 +944,21 @@ struct WallpaperEditorView: View {
     }
 
     private func addRandomSticker() {
-        let stickerLayers = layers.compactMap { l -> UIImage? in
-            l.kind == .sticker ? l.image : nil
+        // 優先從已有的 sticker 圖層取圖，否則從模板 URL 下載
+        let existing = layers.compactMap { $0.kind == .sticker ? $0.image : nil }
+        if let image = existing.randomElement() {
+            appendStickerLayer(image: image)
+        } else if let urlStr = template.images.stickers.randomElement(),
+                  let url = URL(string: urlStr) {
+            Task {
+                if let image = try? await ImageCacheService.shared.image(for: url) {
+                    await MainActor.run { appendStickerLayer(image: image) }
+                }
+            }
         }
-        let img: UIImage? = stickerLayers.randomElement() ?? layers.first { $0.kind == .sticker }?.image
-        guard let image = img else { return }
+    }
+
+    private func appendStickerLayer(image: UIImage) {
         let baseW: CGFloat = 80
         let baseH = baseW * (image.size.height / max(1, image.size.width))
         let cx = CGFloat.random(in: baseW...(canvasSize.width - baseW))
@@ -773,22 +979,26 @@ struct WallpaperEditorView: View {
     }
 
     private func loadPickedPhoto(_ item: PhotosPickerItem?) async {
-        guard let item, let id = photoTargetID else { return }
-        if let data = try? await item.loadTransferable(type: Data.self),
-           let img = UIImage(data: data) {
-            await MainActor.run {
-                if let i = layers.firstIndex(where: { $0.id == id }) {
-                    var l = layers[i]
-                    l.image = img
-                    if l.kind != .background {
-                        let newH = l.size.width * (img.size.height / max(1, img.size.width))
-                        l.size = CGSize(width: l.size.width, height: newH)
-                    }
-                    layers[i] = l
+        guard let item else { return }
+        guard let data = try? await item.loadTransferable(type: Data.self),
+              let img = UIImage(data: data) else { return }
+        await MainActor.run {
+            if let id = photoTargetID,
+               let i = layers.firstIndex(where: { $0.id == id }) {
+                // 替換既有圖層
+                var l = layers[i]
+                l.image = img
+                if l.kind != .background {
+                    let newH = l.size.width * (img.size.height / max(1, img.size.width))
+                    l.size = CGSize(width: l.size.width, height: newH)
                 }
-                photoTargetID = nil
-                pickedItem = nil
+                layers[i] = l
+            } else {
+                // 新增為貼圖
+                appendStickerLayer(image: img)
             }
+            photoTargetID = nil
+            pickedItem = nil
         }
     }
 
@@ -814,7 +1024,10 @@ struct WallpaperEditorView: View {
                 case .background, .sticker:
                     layer.image?.draw(in: rect)
                 case .table:
+                    cg.saveGState()
+                    cg.setAlpha(CGFloat(layer.tableOpacity))
                     layer.image?.draw(in: rect)
+                    cg.restoreGState()
                     let imgW = layer.image?.size.width ?? layer.size.width
                     let displayScale = rect.width / max(1, imgW)
                     let canvasScale = (scaleX + scaleY) / 2
@@ -831,39 +1044,101 @@ struct WallpaperEditorView: View {
     /// `displayScale` = 將 JSON 中以原圖像素為單位的 left/right 換算到目前繪製空間的比例。
     private func drawTextGrid(_ layer: EditorLayer, in rect: CGRect, displayScale: CGFloat, canvasScale: CGFloat) {
         let rows = max(layer.rows, 1)
-        let leftInset = CGFloat(template.left) * displayScale
-        let rightInset = CGFloat(template.right) * displayScale
+        let tc = layer.tableConfig
+        let leftInset = CGFloat(tc?.left ?? 0) * displayScale
+        let rightInset = CGFloat(tc?.right ?? 0) * displayScale
+        let topInset = CGFloat(tc?.topInset ?? 0) * displayScale
+        let bottomInset = CGFloat(tc?.bottom ?? 0) * displayScale
         let usableW = max(0, rect.width - leftInset - rightInset)
+        let usableH = max(0, rect.height - topInset - bottomInset)
         let cellW = usableW / 5
-        let cellH = rect.height / CGFloat(rows)
+        let cellH = usableH / CGFloat(rows)
         // 字體不跟 group 縮放，僅依 canvas→render 的比例放大
-        let fontSize = layer.baseFontSize * canvasScale
-        let style = NSMutableParagraphStyle()
-        style.alignment = .center
+        let baseFontSize = layer.baseFontSize * canvasScale
         let psName = FontLoader.shared.postScriptName(for: layer.fontFamily)
-        let font: UIFont = (psName.flatMap { UIFont(name: $0, size: fontSize) })
-            ?? UIFont.systemFont(ofSize: fontSize, weight: .medium)
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .foregroundColor: UIColor(hex: layer.fontColorHex),
-            .paragraphStyle: style
-        ]
+        let textColor = UIColor(hex: layer.fontColorHex)
+        // 與預覽一致：最多 2 行 + minimumScaleFactor(0.5)
+        let maxLines = 2
+        let minScale: CGFloat = 0.5
+        func makeAttrs(_ size: CGFloat) -> [NSAttributedString.Key: Any] {
+            let style = NSMutableParagraphStyle()
+            style.alignment = .center
+            style.lineBreakMode = .byCharWrapping
+            let font: UIFont = (psName.flatMap { UIFont(name: $0, size: size) })
+                ?? UIFont.systemFont(ofSize: size, weight: .medium)
+            return [
+                .font: font,
+                .foregroundColor: textColor,
+                .paragraphStyle: style
+            ]
+        }
         for r in 0..<rows {
             for c in 0..<5 {
                 let text = layer.subjects[safe: r]?[safe: c] ?? ""
                 guard !text.isEmpty else { continue }
                 let cellRect = CGRect(
                     x: rect.minX + leftInset + CGFloat(c) * cellW,
-                    y: rect.minY + CGFloat(r) * cellH,
+                    y: rect.minY + topInset + CGFloat(r) * cellH,
                     width: cellW, height: cellH
                 )
-                let textSize = (text as NSString).size(withAttributes: attrs)
-                let drawRect = CGRect(
-                    x: cellRect.midX - textSize.width / 2,
-                    y: cellRect.midY - textSize.height / 2,
-                    width: textSize.width, height: textSize.height
+                // 找到最大可接受字級：先試 baseFontSize，不合再按比例縮小到 minScale
+                var size = baseFontSize
+                var attrs = makeAttrs(size)
+                var bounding = (text as NSString).boundingRect(
+                    with: CGSize(width: cellW, height: .greatestFiniteMagnitude),
+                    options: [.usesLineFragmentOrigin, .usesFontLeading],
+                    attributes: attrs,
+                    context: nil
                 )
-                (text as NSString).draw(in: drawRect, withAttributes: attrs)
+                var lineHeight = (attrs[.font] as! UIFont).lineHeight
+                var lineCount = max(1, Int((bounding.height / lineHeight).rounded()))
+                if lineCount > maxLines || bounding.height > cellH {
+                    // 逐步縮小
+                    let floor = baseFontSize * minScale
+                    var low = floor, high = baseFontSize
+                    for _ in 0..<12 {
+                        let mid = (low + high) / 2
+                        let a = makeAttrs(mid)
+                        let b = (text as NSString).boundingRect(
+                            with: CGSize(width: cellW, height: .greatestFiniteMagnitude),
+                            options: [.usesLineFragmentOrigin, .usesFontLeading],
+                            attributes: a,
+                            context: nil
+                        )
+                        let lh = (a[.font] as! UIFont).lineHeight
+                        let lc = max(1, Int((b.height / lh).rounded()))
+                        if lc <= maxLines && b.height <= cellH {
+                            low = mid
+                            size = mid; attrs = a; bounding = b; lineHeight = lh; lineCount = lc
+                        } else {
+                            high = mid
+                        }
+                    }
+                    // 若仍不符，強制使用 floor
+                    if bounding.height > cellH || lineCount > maxLines {
+                        size = floor
+                        attrs = makeAttrs(size)
+                        bounding = (text as NSString).boundingRect(
+                            with: CGSize(width: cellW, height: .greatestFiniteMagnitude),
+                            options: [.usesLineFragmentOrigin, .usesFontLeading],
+                            attributes: attrs,
+                            context: nil
+                        )
+                    }
+                }
+                let drawH = min(bounding.height, cellH)
+                let drawRect = CGRect(
+                    x: cellRect.minX,
+                    y: cellRect.midY - drawH / 2,
+                    width: cellW,
+                    height: drawH
+                )
+                (text as NSString).draw(
+                    with: drawRect,
+                    options: [.usesLineFragmentOrigin, .usesFontLeading],
+                    attributes: attrs,
+                    context: nil
+                )
             }
         }
     }
@@ -966,6 +1241,7 @@ private struct TextSettingsSheet: View {
     @Binding var fontColorHex: String
     @Binding var fontFamily: String
     let fontList: [String: String]
+    @Binding var isLoadingFont: Bool
 
     @Environment(\.dismiss) private var dismiss
 
@@ -1008,7 +1284,9 @@ private struct TextSettingsSheet: View {
                                 HStack {
                                     Text(name)
                                     Spacer()
-                                    if name == fontFamily {
+                                    if name == fontFamily && isLoadingFont {
+                                        ProgressView()
+                                    } else if name == fontFamily {
                                         Image(systemName: "checkmark")
                                             .foregroundStyle(Color.accentColor)
                                     }
@@ -1016,6 +1294,7 @@ private struct TextSettingsSheet: View {
                             }
                             .buttonStyle(.plain)
                             .contentShape(Rectangle())
+                            .disabled(isLoadingFont)
                         }
                     }
                 }
@@ -1131,6 +1410,114 @@ extension UIColor {
         let g = CGFloat((val >> 8) & 0xFF) / 255
         let b = CGFloat(val & 0xFF) / 255
         self.init(red: r, green: g, blue: b, alpha: 1)
+    }
+}
+
+// MARK: - 課表設定 Sheet
+
+private struct DebugInsetsSheet: View {
+    let imageSize: CGSize
+    @Binding var left: Double
+    @Binding var right: Double
+    @Binding var topInset: Double
+    @Binding var bottom: Double
+    @Binding var tableOpacity: Double
+    let availablePeriods: [Int]
+    @Binding var currentPeriodCount: Int
+    let onPeriodChange: (Int) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    private var maxX: Double { max(100, Double(imageSize.width)) }
+    private var maxY: Double { max(100, Double(imageSize.height)) }
+
+    private var jsonSnippet: String {
+        """
+        "left": \(Int(left)),
+        "right": \(Int(right)),
+        "top_inset": \(Int(topInset)),
+        "bottom": \(Int(bottom))
+        """
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Label("此為開發專用，若修改課表節數，資料可能發生錯誤", systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+                Section("節數") {
+                    ForEach(availablePeriods, id: \.self) { count in
+                        Button {
+                            if count != currentPeriodCount {
+                                currentPeriodCount = count
+                                onPeriodChange(count)
+                            }
+                        } label: {
+                            HStack {
+                                Text("\(count) 節")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                if count == currentPeriodCount {
+                                    Image(systemName: "checkmark")
+                                        .foregroundStyle(.blue)
+                                }
+                            }
+                        }
+                    }
+                }
+                Section("課表透明度") {
+                    HStack {
+                        Slider(value: $tableOpacity, in: 0...1, step: 0.05)
+                        Text("\(Int(tableOpacity * 100))%")
+                            .monospacedDigit()
+                            .frame(width: 44, alignment: .trailing)
+                    }
+                }
+                
+                Section("原圖尺寸") {
+                    Text("\(Int(imageSize.width)) × \(Int(imageSize.height)) px")
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                }
+                sliderRow(title: "left", value: $left, range: 0...maxX)
+                sliderRow(title: "right", value: $right, range: 0...maxX)
+                sliderRow(title: "top_inset", value: $topInset, range: 0...maxY)
+                sliderRow(title: "bottom", value: $bottom, range: 0...maxY)
+                Section("JSON") {
+                    Text(jsonSnippet)
+                        .font(.caption.monospaced())
+                        .textSelection(.enabled)
+                    Button {
+                        UIPasteboard.general.string = jsonSnippet
+                    } label: {
+                        Label("複製", systemImage: "doc.on.doc")
+                    }
+                }
+            }
+            .navigationTitle("課表設定")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("完成") { dismiss() }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func sliderRow(title: String, value: Binding<Double>, range: ClosedRange<Double>) -> some View {
+        Section(title) {
+            HStack {
+                Slider(value: value, in: range, step: 1)
+                Text("\(Int(value.wrappedValue))")
+                    .font(.caption.monospaced())
+                    .frame(width: 50, alignment: .trailing)
+            }
+            Stepper("微調", value: value, in: range, step: 1)
+                .labelsHidden()
+        }
     }
 }
 
