@@ -120,6 +120,20 @@ struct WallpaperTemplateListView: View {
         }
         .navigationTitle("課表產生器")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Link(destination: URL(string: "https://github.com/VocPass/wallpaper")!) {
+                        Label("新增我的", systemImage: "plus.circle")
+                    }
+                    Link(destination: URL(string: "\(AppConfig.vocPassAPIHost)/creator-policy")!) {
+                        Label("創作者政策", systemImage: "doc.text")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+            }
+        }
         .task { await load() }
     }
 
@@ -410,8 +424,8 @@ struct WallpaperEditorView: View {
 
     private func canvasRect(in size: CGSize) -> CGRect {
         // 9:19.5 螢幕比例
-        let safeW = min(size.width - 32, 360)
-        let safeH = size.height - 160
+        let safeW = min(size.width - 16, 500)
+        let safeH = size.height - 120
         let aspect: CGFloat = 9.0 / 19.5
         var w = safeW
         var h = w / aspect
@@ -896,11 +910,13 @@ struct WallpaperEditorView: View {
                     }
                 }
             } else {
+                Spacer()
                 Button {
                     addRandomSticker()
                 } label: {
                     Label("新增貼圖", systemImage: "plus.circle")
                 }
+                Spacer()
                 Button {
                     photoTargetID = nil
                     showPhotoPicker = true
@@ -1427,8 +1443,8 @@ private struct DebugInsetsSheet: View {
     let onPeriodChange: (Int) -> Void
     @Environment(\.dismiss) private var dismiss
 
-    private var maxX: Double { max(100, Double(imageSize.width)) }
-    private var maxY: Double { max(100, Double(imageSize.height)) }
+    private var maxX: Double { max(50, Double(imageSize.width) / 2) }
+    private var maxY: Double { max(50, Double(imageSize.height) / 2) }
 
     private var jsonSnippet: String {
         """

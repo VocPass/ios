@@ -290,6 +290,9 @@ struct SettingsView: View {
     @ObservedObject private var vocPassAuth = VocPassAuthService.shared
     @StateObject private var schoolConfigManager = SchoolConfigManager.shared
     @State private var imageCacheSize: String = "計算中…"
+    @State private var developers: [DeveloperInfo] = []
+    @State private var isLoadingDevelopers = false
+    @State private var developerLoadError: String?
 
     var body: some View {
         NavigationStack {
@@ -399,9 +402,62 @@ struct SettingsView: View {
                         }
                     }
                 }
+
+                Section {
+                    if isLoadingDevelopers && developers.isEmpty {
+                        HStack {
+                            ProgressView()
+                            Text("載入中…")
+                                .foregroundStyle(.secondary)
+                        }
+                    } else if let err = developerLoadError, developers.isEmpty {
+                        Text("載入失敗：\(err)")
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    } else {
+                        ForEach(developers) { dev in
+                            DeveloperRow(developer: dev)
+                        }
+                    }
+                } header: {
+                    Text("開發團隊")
+                }
             }
             .navigationTitle("設定")
-            .task { await refreshCacheSize() }
+            .task {
+                await refreshCacheSize()
+                if developers.isEmpty {
+                    await loadDevelopers()
+                }
+            }
+        }
+    }
+
+    private func loadDevelopers() async {
+        guard let url = URL(string: "\(AppConfig.vocPassAPIHost)/api/developer") else { return }
+        await MainActor.run {
+            isLoadingDevelopers = true
+            developerLoadError = nil
+        }
+        struct Envelope: Decodable {
+            let code: Int
+            let message: String
+            let data: [DeveloperInfo]
+        }
+        do {
+            var req = URLRequest(url: url)
+            req.setValue("application/json", forHTTPHeaderField: "Accept")
+            let (data, _) = try await URLSession.shared.data(for: req)
+            let env = try JSONDecoder().decode(Envelope.self, from: data)
+            await MainActor.run {
+                self.developers = env.data
+                self.isLoadingDevelopers = false
+            }
+        } catch {
+            await MainActor.run {
+                self.developerLoadError = error.localizedDescription
+                self.isLoadingDevelopers = false
+            }
         }
     }
 
@@ -511,6 +567,28 @@ struct VocPassAccountSettingsView: View {
 }
 
 // MARK: - 學校設定
+struct DeveloperInfo: Decodable, Identifiable {
+    struct UserInfo: Decodable {
+        let name: String
+        let avatar: String?
+        let username: String
+    }
+    let user: UserInfo
+    let website: String?
+    let description: String?
+    let role: String?
+
+    var id: String { user.username }
+    var avatarURL: URL? {
+        guard let a = user.avatar, !a.isEmpty else { return nil }
+        return URL(string: a)
+    }
+    var websiteURL: URL? {
+        guard let w = website, !w.isEmpty else { return nil }
+        return URL(string: w)
+    }
+}
+
 struct SchoolSettingsView: View {
     @EnvironmentObject var apiService: APIService
     @StateObject private var dynamicIsland = DynamicIslandService.shared
@@ -804,6 +882,74 @@ struct SchoolSettingsView: View {
         }
         .navigationTitle("學校設定")
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+struct DeveloperRow: View {
+    let developer: DeveloperInfo
+
+    var body: some View {
+        let content = HStack(alignment: .top, spacing: 12) {
+            Group {
+                if let url = developer.avatarURL {
+                    CachedAsyncImage(url: url) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image.resizable().scaledToFill()
+                        default:
+                            Image(systemName: "person.circle.fill")
+                                .resizable()
+                                .foregroundStyle(.blue)
+                        }
+                    }
+                } else {
+                    Image(systemName: "person.circle.fill")
+                        .resizable()
+                        .foregroundStyle(.blue)
+                }
+            }
+            .frame(width: 44, height: 44)
+            .clipShape(Circle())
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(developer.user.name)
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.primary)
+                    if let role = developer.role, !role.isEmpty {
+                        Text(role)
+                            .font(.caption2)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.blue.opacity(0.15))
+                            .foregroundStyle(.blue)
+                            .clipShape(Capsule())
+                    }
+                }
+                if let desc = developer.description, !desc.isEmpty {
+                    Text(desc)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(3)
+                }
+                if let website = developer.website, !website.isEmpty {
+                    Text(website)
+                        .font(.caption2)
+                        .foregroundStyle(.blue)
+                        .lineLimit(1)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 4)
+
+        if let url = developer.websiteURL {
+            Link(destination: url) { content }
+                .buttonStyle(.plain)
+        } else {
+            content
+        }
     }
 }
 
