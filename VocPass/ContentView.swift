@@ -60,7 +60,9 @@ struct ContentView: View {
                 await MainActor.run { isCheckingSession = false }
                 // Ping 在背景執行，不阻擋 UI
                 if hasSeenOnboarding && hasSelectedSchool {
-                    await apiService.pingAndRestoreSession()
+                    if schoolConfigManager.selectedSchool?.isGuest != true {
+                        await apiService.pingAndRestoreSession()
+                    }
                     CacheService.shared.syncTimetableToWidget()
                 }
             }

@@ -110,7 +110,7 @@ struct SchoolSelectionView: View {
                         )
                         .padding(.horizontal)
 
-                        if filteredSchools.isEmpty {
+                        if filteredSchools.isEmpty && !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                             Spacer()
                             VStack(spacing: 10) {
                                 Image(systemName: "magnifyingglass")
@@ -121,9 +121,23 @@ struct SchoolSelectionView: View {
                             }
                             Spacer()
                         } else {
-                            List(filteredSchools) { school in
-                                SchoolRowView(school: school) {
-                                    selectSchool(school)
+                            List {
+                                Section {
+                                    SchoolRowView(school: SchoolConfig.guest) {
+                                        selectSchool(SchoolConfig.guest)
+                                    }
+                                } footer: {
+                                    Text("訪客模式不需登入，可直接使用課表功能（手動輸入）。")
+                                }
+
+                                if !filteredSchools.isEmpty {
+                                    Section {
+                                        ForEach(filteredSchools) { school in
+                                            SchoolRowView(school: school) {
+                                                selectSchool(school)
+                                            }
+                                        }
+                                    }
                                 }
                             }
                             .listStyle(.insetGrouped)
@@ -187,18 +201,21 @@ struct SchoolRowView: View {
     let onSelect: () -> Void
     
     var body: some View {
+        let tint: Color = school.isGuest ? .green : .blue
+        let iconName = school.isGuest ? "person.fill.questionmark" : "graduationcap.fill"
+
         Button(action: onSelect) {
             HStack(spacing: 16) {
                 ZStack {
                     Circle()
-                        .fill(Color.blue.opacity(0.1))
+                        .fill(tint.opacity(0.1))
                         .frame(width: 50, height: 50)
-                    
-                    Image(systemName: "graduationcap.fill")
+
+                    Image(systemName: iconName)
                         .font(.title2)
-                        .foregroundColor(.blue)
+                        .foregroundColor(tint)
                 }
-                
+
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 8) {
                         Text(school.name)
@@ -216,8 +233,8 @@ struct SchoolRowView: View {
                                 .clipShape(Capsule())
                         }
                     }
-                    
-                    Text(school.api)
+
+                    Text(school.isGuest ? "免登入 · 僅支援課表" : school.api)
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .lineLimit(1)

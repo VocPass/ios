@@ -13,6 +13,7 @@ struct CurriculumView: View {
     @StateObject private var dynamicIsland = DynamicIslandService.shared
     @State private var curriculum: [String: CourseInfo] = CacheService.shared.getCachedTimetable()?.curriculum ?? [:]
     @State private var isLoading = CacheService.shared.getCachedTimetable() == nil
+        && SchoolConfigManager.shared.selectedSchool?.isGuest != true
     @State private var errorMessage: String?
     @State private var isUnsupported = false
 
@@ -387,6 +388,15 @@ struct CurriculumView: View {
     }
 
     private func loadData(forceRefresh: Bool = false) async {
+        if SchoolConfigManager.shared.selectedSchool?.isGuest == true {
+            await MainActor.run {
+                self.isLoading = false
+                self.errorMessage = nil
+                self.isUnsupported = false
+            }
+            return
+        }
+
         isLoading = true
         errorMessage = nil
         isUnsupported = false

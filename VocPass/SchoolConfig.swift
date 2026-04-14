@@ -25,6 +25,7 @@ struct SchoolConfig: Codable, Identifiable {
     let api: String
     let notice: NoticeConfig?
     let telephone: String?
+    let js: String?
     let url: URLConfig
     let login: LoginConfig
     let route: RouteConfig
@@ -36,6 +37,7 @@ struct SchoolConfig: Codable, Identifiable {
          api: String,
          notice: NoticeConfig? = nil,
          telephone: String? = nil,
+         js: String? = nil,
          url: URLConfig,
          login: LoginConfig,
          route: RouteConfig) {
@@ -46,6 +48,8 @@ struct SchoolConfig: Codable, Identifiable {
         self.api = api
         self.notice = notice
         self.telephone = telephone
+        let trimmedJs = js?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.js = (trimmedJs?.isEmpty ?? true) ? nil : trimmedJs
         self.url = url
         self.login = login
         self.route = route
@@ -60,6 +64,9 @@ struct SchoolConfig: Codable, Identifiable {
         api = try container.decode(String.self, forKey: .api)
         notice = try container.decodeIfPresent(NoticeConfig.self, forKey: .notice)
         telephone = try container.decodeIfPresent(String.self, forKey: .telephone)
+        let rawJs = try? container.decodeIfPresent(String.self, forKey: .js)
+        let trimmedJs = rawJs?.trimmingCharacters(in: .whitespacesAndNewlines)
+        js = (trimmedJs?.isEmpty ?? true) ? nil : trimmedJs
         url = try container.decode(URLConfig.self, forKey: .url)
         login = try container.decode(LoginConfig.self, forKey: .login)
         route = try container.decode(RouteConfig.self, forKey: .route)
@@ -73,6 +80,7 @@ struct SchoolConfig: Codable, Identifiable {
         case api
         case notice
         case telephone
+        case js
         case url
         case login
         case route
@@ -89,6 +97,29 @@ struct SchoolConfig: Codable, Identifiable {
     var rootURL: String {
         api + url.root
     }
+
+    var isGuest: Bool {
+        api == SchoolConfig.guestAPIMarker
+    }
+
+    static let guestAPIMarker = "vocpass://guest"
+
+    static let guest = SchoolConfig(
+        name: "訪客模式",
+        vision: "v1",
+        app: nil,
+        beta: false,
+        api: guestAPIMarker,
+        url: URLConfig(login: "/", logined: "/", root: "/"),
+        login: LoginConfig(
+            username: FieldConfig(name: ""),
+            password: FieldConfig(name: ""),
+            captcha: FieldConfig(name: ""),
+            captchaImage: nil,
+            button: ButtonConfig(class: "")
+        ),
+        route: RouteConfig(examResults: nil)
+    )
 }
 
 // MARK: - 路由配置
@@ -336,6 +367,7 @@ class SchoolConfigManager: ObservableObject {
                             api: config.api,
                             notice: config.notice,
                             telephone: config.telephone,
+                            js: config.js,
                             url: config.url,
                             login: config.login,
                             route: config.route
@@ -522,6 +554,7 @@ private struct SchoolConfigData: Codable {
     let api: String
     let notice: NoticeConfig?
     let telephone: String?
+    let js: String?
     let url: URLConfig
     let login: LoginConfig
     let route: RouteConfig
@@ -533,6 +566,7 @@ private struct SchoolConfigData: Codable {
         api = try container.decode(String.self, forKey: .api)
         notice = try container.decodeIfPresent(NoticeConfig.self, forKey: .notice)
         telephone = try container.decodeIfPresent(String.self, forKey: .telephone)
+        js = try? container.decodeIfPresent(String.self, forKey: .js)
         url = try container.decode(URLConfig.self, forKey: .url)
         login = try container.decode(LoginConfig.self, forKey: .login)
         route = try container.decode(RouteConfig.self, forKey: .route)
@@ -556,6 +590,7 @@ private struct SchoolConfigData: Codable {
         case api
         case notice
         case telephone
+        case js
         case url
         case login
         case route

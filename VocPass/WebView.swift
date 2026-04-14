@@ -378,7 +378,60 @@ struct WebView: UIViewRepresentable {
 
             recordURL(currentURL)
 
+            injectCustomLoginScriptIfNeeded(webView: webView, currentURL: currentURL)
+
             startContinuousDetection(for: webView)
+        }
+
+        private func injectCustomLoginScriptIfNeeded(webView: WKWebView, currentURL: String) {
+            guard !hasLoggedIn else { return }
+            guard let customJs = parent.school.js, !customJs.isEmpty else {
+                print("ℹ️ [WebView] 無自訂登入 JS 設定")
+                return
+            }
+
+            let wrapped = """
+            (function() {
+                try {
+                    if (sessionStorage.getItem('__vocpassCustomJsRan') === '1') {
+                        return 'session_already';
+                    }
+                } catch (_) {}
+                if (window.__vocpassCustomJsRan) { return 'window_already'; }
+                var __vp_tries = 0;
+                var __vp_maxTries = 60;
+                function __vp_markDone() {
+                    window.__vocpassCustomJsRan = true;
+                    try { sessionStorage.setItem('__vocpassCustomJsRan', '1'); } catch (_) {}
+                }
+                function __vp_run() {
+                    try {
+                        (function() {
+                            \(customJs)
+                        })();
+                        __vp_markDone();
+                        return 'ok';
+                    } catch (err) {
+                        __vp_tries++;
+                        if (__vp_tries < __vp_maxTries) {
+                            setTimeout(__vp_run, 250);
+                            return 'retry:' + err.message;
+                        }
+                        return 'giveup:' + err.message;
+                    }
+                }
+                return __vp_run();
+            })();
+            """
+
+            print("💉 [WebView] 注入自訂登入頁 JS (url=\(currentURL))")
+            webView.evaluateJavaScript(wrapped) { result, error in
+                if let error = error {
+                    print("❌ [WebView] 自訂 JS 執行失敗: \(error)")
+                } else {
+                    print("✅ [WebView] 自訂 JS 結果: \(result ?? "nil")")
+                }
+            }
         }
 
         private var isCheckingLoginState = false

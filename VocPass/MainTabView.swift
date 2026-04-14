@@ -182,6 +182,16 @@ struct SchoolAffairsView: View {
                         }
                         .buttonStyle(.borderedProminent)
                     }
+                } else if schoolConfigManager.selectedSchool?.isGuest == true {
+                    List {
+                        Section {
+                            NavigationLink(destination: CurriculumView()) {
+                                Label("課表", systemImage: "calendar")
+                            }
+                        } footer: {
+                            Text("訪客模式下僅可使用課表功能，課程內容可手動輸入。")
+                        }
+                    }
                 } else {
                     List {
                         if apiService.isPinging {
