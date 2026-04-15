@@ -1273,7 +1273,7 @@ private struct TextSettingsSheet: View {
             Form {
                 Section("字體大小") {
                     HStack {
-                        Slider(value: $fontSize, in: 6...48, step: 1)
+                        Slider(value: $fontSize, in: 3...24, step: 1)
                         Text("\(Int(fontSize))")
                             .monospacedDigit()
                             .frame(width: 36, alignment: .trailing)
