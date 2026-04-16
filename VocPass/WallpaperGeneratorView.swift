@@ -232,6 +232,7 @@ private struct EditorLayer: Identifiable {
     var fontColorHex: String = "#000000"  // textGroup 專用
     var fontFamily: String = "Noto"       // textGroup 專用（API 回傳的 display name）
     var tableOpacity: Double = 1.0        // table 專用：課表圖片透明度 0~1
+    var stickerOpacity: Double = 1.0      // sticker 專用：貼圖透明度 0~1
     var tableConfig: WallpaperTableConfig? // table 專用：該節次的間距設定
 }
 
@@ -777,6 +778,7 @@ struct WallpaperEditorView: View {
                         .resizable()
                         .scaledToFit()
                         .frame(width: layer.size.width, height: layer.size.height)
+                        .opacity(layer.stickerOpacity)
                 }
             }
         }
@@ -912,6 +914,20 @@ struct WallpaperEditorView: View {
                     }
                 }
                 if layer.kind == .sticker {
+                    if let idx = layers.firstIndex(where: { $0.id == id }) {
+                        Slider(
+                            value: Binding(
+                                get: { layers[idx].stickerOpacity },
+                                set: { layers[idx].stickerOpacity = $0 }
+                            ),
+                            in: 0...1,
+                            step: 0.05
+                        )
+                        .frame(width: 80)
+                        Text("\(Int(layers[idx].stickerOpacity * 100))%")
+                            .font(.caption.monospacedDigit())
+                            .frame(width: 36)
+                    }
                     Button(role: .destructive) {
                         removeLayer(id: id)
                     } label: {
@@ -1055,8 +1071,13 @@ struct WallpaperEditorView: View {
                 cg.rotate(by: CGFloat(layer.rotation.radians))
                 let rect = CGRect(x: -w/2, y: -h/2, width: w, height: h)
                 switch layer.kind {
-                case .background, .sticker:
+                case .background:
                     layer.image?.draw(in: rect)
+                case .sticker:
+                    cg.saveGState()
+                    cg.setAlpha(CGFloat(layer.stickerOpacity))
+                    layer.image?.draw(in: rect)
+                    cg.restoreGState()
                 case .table:
                     cg.saveGState()
                     cg.setAlpha(CGFloat(layer.tableOpacity))
