@@ -261,6 +261,7 @@ struct WallpaperEditorView: View {
     @State private var showDebugInsets = false
     @State private var currentPeriodCount: Int = 0  // 目前選用的節數（0 = 自動偵測）
     @State private var isLoadingFont = false
+    @State private var showStickerPicker = false
 
     var body: some View {
         GeometryReader { geo in
@@ -369,7 +370,7 @@ struct WallpaperEditorView: View {
                         setLayerImage(layerID: id, urlStr: urlStr)
                     },
                     onAddSticker: {
-                        addRandomSticker()
+                        showStickerPicker = true
                     }
                 )
             }
@@ -407,6 +408,14 @@ struct WallpaperEditorView: View {
                     }
                 )
             }
+        }
+        .sheet(isPresented: $showStickerPicker) {
+            StickerPickerSheet(
+                stickerURLs: template.images.stickers,
+                onSelect: { urlStr in
+                    addStickerFromURL(urlStr)
+                }
+            )
         }
         .alert("儲存完成", isPresented: $showSavedAlert) {
             Button("確定") {
@@ -912,7 +921,7 @@ struct WallpaperEditorView: View {
             } else {
                 Spacer()
                 Button {
-                    addRandomSticker()
+                    showStickerPicker = true
                 } label: {
                     Label("新增貼圖", systemImage: "plus.circle")
                 }
@@ -970,6 +979,15 @@ struct WallpaperEditorView: View {
                 if let image = try? await ImageCacheService.shared.image(for: url) {
                     await MainActor.run { appendStickerLayer(image: image) }
                 }
+            }
+        }
+    }
+
+    private func addStickerFromURL(_ urlStr: String) {
+        guard let url = URL(string: urlStr) else { return }
+        Task {
+            if let image = try? await ImageCacheService.shared.image(for: url) {
+                await MainActor.run { appendStickerLayer(image: image) }
             }
         }
     }
@@ -1240,6 +1258,65 @@ private struct ImagePickerSheet: View {
                 }
             }
             .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("完成") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - 貼圖選擇 Sheet
+
+private struct StickerPickerSheet: View {
+    let stickerURLs: [String]
+    let onSelect: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    private let columns = [
+        GridItem(.flexible(), spacing: 12),
+        GridItem(.flexible(), spacing: 12),
+        GridItem(.flexible(), spacing: 12)
+    ]
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                LazyVGrid(columns: columns, spacing: 12) {
+                    ForEach(Array(stickerURLs.enumerated()), id: \.offset) { _, urlStr in
+                        Button {
+                            onSelect(urlStr)
+                            dismiss()
+                        } label: {
+                            CachedAsyncImage(url: URL(string: urlStr)) { phase in
+                                switch phase {
+                                case .success(let img):
+                                    img.resizable().scaledToFit()
+                                case .failure:
+                                    ZStack {
+                                        Color.gray.opacity(0.15)
+                                        Image(systemName: "photo").foregroundStyle(.secondary)
+                                    }
+                                default:
+                                    ZStack {
+                                        Color.gray.opacity(0.15)
+                                        ProgressView()
+                                    }
+                                }
+                            }
+                            .frame(height: 110)
+                            .frame(maxWidth: .infinity)
+                            .background(Color.gray.opacity(0.08))
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding()
+            }
+            .navigationTitle("選擇貼圖")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
