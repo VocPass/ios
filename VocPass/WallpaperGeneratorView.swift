@@ -141,6 +141,9 @@ struct WallpaperTemplateListView: View {
                     Link(destination: URL(string: "\(AppConfig.vocPassAPIHost)/creator-policy")!) {
                         Label("創作者政策", systemImage: "doc.text")
                     }
+                    Link(destination: URL(string: "\(AppConfig.vocPassAPIHost)/terms-of-use")!) {
+                        Label("內容使用條款", systemImage: "doc.text")
+                    }
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }

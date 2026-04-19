@@ -723,7 +723,7 @@ struct SchoolSettingsView: View {
                 Text("即時動態 / 動態島")
             } footer: {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("開啟後，伺服器會在上課時段透過推播自動更新動態島課表。")
+                    Text("開啟後，伺服器會在上課時段透過推播自動更新動態島課表。請確保你有設定每節課的時間，才會正常更新。")
                         .font(.caption)
 
                     if let err = dynamicIsland.lastErrorMessage, !err.isEmpty {
