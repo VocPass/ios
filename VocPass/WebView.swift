@@ -460,10 +460,26 @@ struct WebView: UIViewRepresentable {
 
             let pageStateScript = """
             (function() {
+                var mainHtml = (document.documentElement && document.documentElement.outerHTML) ? document.documentElement.outerHTML : '';
+                var mainText = (document.body && document.body.innerText) ? document.body.innerText : '';
+                var iframeHtml = '';
+                var iframeText = '';
+                try {
+                    var frames = document.querySelectorAll('iframe, frame');
+                    for (var i = 0; i < frames.length; i++) {
+                        try {
+                            var frameDoc = frames[i].contentDocument || frames[i].contentWindow.document;
+                            if (frameDoc) {
+                                iframeHtml += frameDoc.documentElement ? frameDoc.documentElement.outerHTML : '';
+                                iframeText += frameDoc.body ? frameDoc.body.innerText : '';
+                            }
+                        } catch(e) {}
+                    }
+                } catch(e) {}
                 return {
                     readyState: document.readyState || '',
-                    html: (document.documentElement && document.documentElement.outerHTML) ? document.documentElement.outerHTML : '',
-                    text: (document.body && document.body.innerText) ? document.body.innerText : ''
+                    html: mainHtml + iframeHtml,
+                    text: mainText + iframeText
                 };
             })();
             """
@@ -502,6 +518,7 @@ struct WebView: UIViewRepresentable {
                 }
 
                 print("🧾 [WebView] 開始登入關鍵字偵測（readyState=\(readyState)）")
+                self.logHTML(html, currentURL: currentURL)
 
                 let searchableText = "\(text)\n\(html)".lowercased()
                 let matchedKeyword = self.loginSuccessKeywords.first {
