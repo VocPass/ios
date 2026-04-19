@@ -212,10 +212,11 @@ struct SubjectGradeRow: View {
 
     private func scoreColor(_ score: String) -> Color {
         guard let scoreValue = Double(score) else { return .primary }
+        let passingScore = Double(CacheService.shared.passingScore)
         switch scoreValue {
         case 90...100: return .green
         case 80..<90: return .blue
-        case 60..<80: return .primary
+        case passingScore..<80: return .primary
         default: return .red
         }
     }
@@ -509,10 +510,11 @@ struct ExamSubjectRow: View {
 
     private var scoreColor: Color {
         guard let score = Double(subject.personalScore) else { return .primary }
+        let passingScore = Double(CacheService.shared.passingScore)
         switch score {
         case 90...100: return .green
         case 80..<90: return .blue
-        case 60..<80: return .primary
+        case passingScore..<80: return .primary
         default: return .red
         }
     }

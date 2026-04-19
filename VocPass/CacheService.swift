@@ -38,6 +38,7 @@ class CacheService {
         case vocPassCookies = "vocpass_auth_cookies"
         case weeksPerSemester = "weeks_per_semester"
         case periodsPerDay = "periods_per_day"
+        case passingScore = "passing_score"
     }
 
     // MARK: - 課表顯示節數
@@ -58,6 +59,16 @@ class CacheService {
             return v == 0 ? 18 : v
         }
         set { userDefaults.set(newValue, forKey: CacheKey.weeksPerSemester.rawValue) }
+    }
+
+    // MARK: - 及格分數設定
+
+    var passingScore: Int {
+        get {
+            let v = userDefaults.integer(forKey: CacheKey.passingScore.rawValue)
+            return v == 0 ? 60 : v
+        }
+        set { userDefaults.set(newValue, forKey: CacheKey.passingScore.rawValue) }
     }
 
     // MARK: - Dynamic Island Settings

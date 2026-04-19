@@ -609,6 +609,7 @@ struct SchoolSettingsView: View {
     @State private var showNotificationDeniedAlert = false
     @State private var weeksPerSemester = CacheService.shared.weeksPerSemester
     @State private var periodsPerDay = CacheService.shared.periodsPerDay
+    @State private var passingScore = CacheService.shared.passingScore
     @AppStorage("absence_threshold_is_half") private var absenceThresholdIsHalf = false
 
     var body: some View {
@@ -814,6 +815,24 @@ struct SchoolSettingsView: View {
                 Text("Live Activity Tokens")
             } footer: {
                 Text("Push-to-Start Token 用於遠端啟動即時動態；Push Token 在啟動後出現，用於遠端更新；APNs Device Token 用於一般通知觸發啟動。")
+                    .font(.caption)
+            }
+
+            Section {
+                Picker(selection: $passingScore) {
+                    Text("40 分").tag(40)
+                    Text("50 分").tag(50)
+                    Text("60 分").tag(60)
+                } label: {
+                    Label("及格分數", systemImage: "checkmark.seal")
+                }
+                .onChange(of: passingScore) { _, newValue in
+                    CacheService.shared.passingScore = newValue
+                }
+            } header: {
+                Text("成績")
+            } footer: {
+                Text("低於及格分數的成績會以紅色顯示。預設 60 分。")
                     .font(.caption)
             }
 
