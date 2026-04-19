@@ -77,9 +77,12 @@ struct WallpaperImages: Decodable {
 // MARK: - 模板列表
 
 struct WallpaperTemplateListView: View {
+    @ObservedObject private var vocPassAuth = VocPassAuthService.shared
     @State private var templates: [WallpaperTemplate] = []
+    @State private var usageStats: [String: Int] = [:]
     @State private var isLoading = true
     @State private var loadError: String?
+    @State private var showVocPassLogin = false
 
     private let columns = [
         GridItem(.flexible(), spacing: 12),
@@ -108,10 +111,19 @@ struct WallpaperTemplateListView: View {
                 ScrollView {
                     LazyVGrid(columns: columns, spacing: 16) {
                         ForEach(templates) { tpl in
-                            NavigationLink(destination: WallpaperEditorView(template: tpl)) {
-                                TemplateCard(template: tpl)
+                            if vocPassAuth.isLoggedIn {
+                                NavigationLink(destination: WallpaperEditorView(template: tpl)) {
+                                    TemplateCard(template: tpl, useCount: usageStats[tpl.name] ?? 0)
+                                }
+                                .buttonStyle(.plain)
+                            } else {
+                                Button {
+                                    showVocPassLogin = true
+                                } label: {
+                                    TemplateCard(template: tpl, useCount: usageStats[tpl.name] ?? 0)
+                                }
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
                         }
                     }
                     .padding()
@@ -135,6 +147,9 @@ struct WallpaperTemplateListView: View {
             }
         }
         .task { await load() }
+        .sheet(isPresented: $showVocPassLogin) {
+            VocPassLoginSheet()
+        }
     }
 
     private func load() async {
@@ -151,8 +166,10 @@ struct WallpaperTemplateListView: View {
                 struct Wrapper: Decodable { let data: [WallpaperTemplate] }
                 list = try JSONDecoder().decode(Wrapper.self, from: data).data
             }
+            let stats = await fetchUsageStats()
             await MainActor.run {
                 self.templates = list
+                self.usageStats = stats
                 self.isLoading = false
             }
         } catch {
@@ -162,10 +179,22 @@ struct WallpaperTemplateListView: View {
             }
         }
     }
+
+    private func fetchUsageStats() async -> [String: Int] {
+        guard let url = URL(string: "\(AppConfig.vocPassAPIHost)/api/wallpaper/curriculum/status") else { return [:] }
+        do {
+            let (data, _) = try await URLSession.shared.data(from: url)
+            struct StatsResponse: Decodable { let data: [String: Int] }
+            return try JSONDecoder().decode(StatsResponse.self, from: data).data
+        } catch {
+            return [:]
+        }
+    }
 }
 
 private struct TemplateCard: View {
     let template: WallpaperTemplate
+    let useCount: Int
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -205,6 +234,9 @@ private struct TemplateCard: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
+            Label("\(useCount) 人使用", systemImage: "person.2")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
         }
     }
 }
@@ -252,6 +284,8 @@ struct WallpaperEditorView: View {
     @State private var photoTargetID: UUID?
     @State private var pinchBaseSize: CGSize?
     @State private var pinchLayerID: UUID?
+    @State private var rotationBaseAngle: Angle?
+    @State private var rotationLayerID: UUID?
     @State private var showImagePicker = false
     @State private var pickerTargetID: UUID?
     @State private var showTextSettings = false
@@ -263,6 +297,27 @@ struct WallpaperEditorView: View {
     @State private var currentPeriodCount: Int = 0  // 目前選用的節數（0 = 自動偵測）
     @State private var isLoadingFont = false
     @State private var showStickerPicker = false
+    @State private var undoStack: [[EditorLayer]] = []
+    @State private var showCenterGuides = false
+    @State private var guidesH = false   // 水平中心對齊
+    @State private var guidesV = false   // 垂直中心對齊
+
+    private let snapThreshold: CGFloat = 6  // 吸附閾值（像素）
+
+    private func pushUndo() {
+        undoStack.append(layers)
+        if undoStack.count > 30 { undoStack.removeFirst() }
+    }
+
+    private func performUndo() {
+        guard let prev = undoStack.popLast() else { return }
+        // 保持選取狀態：如果上一步中存在同類型的圖層，嘗試保留選取
+        layers = prev
+        if let selID = selectedLayerID,
+           !layers.contains(where: { $0.id == selID }) {
+            selectedLayerID = nil
+        }
+    }
 
     var body: some View {
         GeometryReader { geo in
@@ -293,6 +348,24 @@ struct WallpaperEditorView: View {
                     .frame(width: canvas.size.width, height: canvas.size.height)
                     .clipped()
                     .background(Color.gray.opacity(0.1))
+                    .overlay {
+                        // 中心對齊輔助線
+                        ZStack {
+                            if guidesV {
+                                Rectangle()
+                                    .fill(Color.yellow.opacity(0.8))
+                                    .frame(width: 1, height: canvas.size.height)
+                                    .position(x: canvas.size.width / 2, y: canvas.size.height / 2)
+                            }
+                            if guidesH {
+                                Rectangle()
+                                    .fill(Color.yellow.opacity(0.8))
+                                    .frame(width: canvas.size.width, height: 1)
+                                    .position(x: canvas.size.width / 2, y: canvas.size.height / 2)
+                            }
+                        }
+                        .allowsHitTesting(false)
+                    }
                     .overlay(
                         RoundedRectangle(cornerRadius: 16)
                             .stroke(Color.white.opacity(0.2), lineWidth: 1)
@@ -320,6 +393,14 @@ struct WallpaperEditorView: View {
         .navigationTitle(template.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    performUndo()
+                } label: {
+                    Image(systemName: "arrow.uturn.backward")
+                }
+                .disabled(undoStack.isEmpty || isLoading)
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     saveToPhotos()
@@ -796,19 +877,43 @@ struct WallpaperEditorView: View {
                 DragGesture()
                     .onChanged { value in
                         if let idx = layers.firstIndex(where: { $0.id == layer.id }) {
+                            // 第一次拖動時記錄 undo
+                            if dragOffset == .zero {
+                                pushUndo()
+                            }
                             var l = layers[idx]
                             l.center.x += value.translation.width - dragOffset.width
                             l.center.y += value.translation.height - dragOffset.height
+                            // 吸附到 canvas 中心
+                            let midX = canvas.width / 2
+                            let midY = canvas.height / 2
+                            if abs(l.center.x - midX) < snapThreshold {
+                                l.center.x = midX
+                                guidesV = true
+                            } else {
+                                guidesV = false
+                            }
+                            if abs(l.center.y - midY) < snapThreshold {
+                                l.center.y = midY
+                                guidesH = true
+                            } else {
+                                guidesH = false
+                            }
                             layers[idx] = l
                             dragOffset = value.translation
                             if selectedLayerID != layer.id { selectedLayerID = layer.id }
                         }
                     }
-                    .onEnded { _ in dragOffset = .zero },
+                    .onEnded { _ in
+                        dragOffset = .zero
+                        guidesV = false
+                        guidesH = false
+                    },
                 MagnificationGesture()
                     .onChanged { value in
                         guard let idx = layers.firstIndex(where: { $0.id == layer.id }) else { return }
                         if pinchLayerID != layer.id {
+                            pushUndo()
                             pinchLayerID = layer.id
                             pinchBaseSize = layers[idx].size
                         }
@@ -825,6 +930,25 @@ struct WallpaperEditorView: View {
                         pinchLayerID = nil
                     }
             )
+        )
+        .simultaneousGesture(
+            RotationGesture()
+                .onChanged { angle in
+                    guard layer.kind == .sticker,
+                          let idx = layers.firstIndex(where: { $0.id == layer.id }) else { return }
+                    if rotationLayerID != layer.id {
+                        pushUndo()
+                        rotationLayerID = layer.id
+                        rotationBaseAngle = layers[idx].rotation
+                    }
+                    guard let base = rotationBaseAngle else { return }
+                    layers[idx].rotation = base + angle
+                    if selectedLayerID != layer.id { selectedLayerID = layer.id }
+                }
+                .onEnded { _ in
+                    rotationBaseAngle = nil
+                    rotationLayerID = nil
+                }
         )
         .onTapGesture {
             selectedLayerID = layer.id
@@ -1024,6 +1148,7 @@ struct WallpaperEditorView: View {
     }
 
     private func removeLayer(id: UUID) {
+        pushUndo()
         layers.removeAll { $0.id == id }
         if selectedLayerID == id { selectedLayerID = nil }
     }
@@ -1092,7 +1217,17 @@ struct WallpaperEditorView: View {
             }
         }
         UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
+        reportWallpaperUsage()
         showSavedAlert = true
+    }
+
+    private func reportWallpaperUsage() {
+        let encoded = template.name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? template.name
+        guard let url = URL(string: "\(AppConfig.vocPassAPIHost)/api/wallpaper/curriculum/status?wallpaper_name=\(encoded)") else { return }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        try? VocPassAuthService.shared.applyAuth(to: &req)
+        URLSession.shared.dataTask(with: req) { _, _, _ in }.resume()
     }
 
     /// 在 table layer 的繪製矩形上覆蓋文字格。
@@ -1384,6 +1519,9 @@ private struct TextSettingsSheet: View {
                         .foregroundStyle(.secondary)
                 }
                 Section("字型") {
+                    Link(destination: URL(string: "\(AppConfig.vocPassAPIHost)/font")!) {
+                        Label("預覽所有字型", systemImage: "eye")
+                    }
                     if fontList.isEmpty {
                         HStack {
                             ProgressView()
@@ -1556,10 +1694,40 @@ private struct DebugInsetsSheet: View {
     var body: some View {
         NavigationStack {
             Form {
+                
+                Section("課表透明度") {
+                    HStack {
+                        Slider(value: $tableOpacity, in: 0...1, step: 0.05)
+                        Text("\(Int(tableOpacity * 100))%")
+                            .monospacedDigit()
+                            .frame(width: 44, alignment: .trailing)
+                    }
+                }
+                
+                Section("原圖尺寸") {
+                    Text("\(Int(imageSize.width)) × \(Int(imageSize.height)) px")
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                }
+                sliderRow(title: "左間距 (left)", value: $left, range: 0...maxX)
+                sliderRow(title: "右間距 (right)", value: $right, range: 0...maxX)
+                sliderRow(title: "上間距 (top_inset)", value: $topInset, range: 0...maxY)
+                sliderRow(title: "下間距 (bottom)", value: $bottom, range: 0...maxY)
+                
                 Section {
-                    Label("此為開發專用，若修改課表節數，資料可能發生錯誤", systemImage: "exclamationmark.triangle")
+                    Label("以下為開發專用，若修改課表節數，會使用假資料填充", systemImage: "exclamationmark.triangle")
                         .font(.caption)
                         .foregroundStyle(.orange)
+                }
+                Section("JSON") {
+                    Text(jsonSnippet)
+                        .font(.caption.monospaced())
+                        .textSelection(.enabled)
+                    Button {
+                        UIPasteboard.general.string = jsonSnippet
+                    } label: {
+                        Label("複製", systemImage: "doc.on.doc")
+                    }
                 }
                 Section("節數") {
                     ForEach(availablePeriods, id: \.self) { count in
@@ -1579,34 +1747,6 @@ private struct DebugInsetsSheet: View {
                                 }
                             }
                         }
-                    }
-                }
-                Section("課表透明度") {
-                    HStack {
-                        Slider(value: $tableOpacity, in: 0...1, step: 0.05)
-                        Text("\(Int(tableOpacity * 100))%")
-                            .monospacedDigit()
-                            .frame(width: 44, alignment: .trailing)
-                    }
-                }
-                
-                Section("原圖尺寸") {
-                    Text("\(Int(imageSize.width)) × \(Int(imageSize.height)) px")
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.secondary)
-                }
-                sliderRow(title: "left", value: $left, range: 0...maxX)
-                sliderRow(title: "right", value: $right, range: 0...maxX)
-                sliderRow(title: "top_inset", value: $topInset, range: 0...maxY)
-                sliderRow(title: "bottom", value: $bottom, range: 0...maxY)
-                Section("JSON") {
-                    Text(jsonSnippet)
-                        .font(.caption.monospaced())
-                        .textSelection(.enabled)
-                    Button {
-                        UIPasteboard.general.string = jsonSnippet
-                    } label: {
-                        Label("複製", systemImage: "doc.on.doc")
                     }
                 }
             }
