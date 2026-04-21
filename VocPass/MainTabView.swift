@@ -355,7 +355,7 @@ struct SettingsView: View {
                                 .foregroundColor(.secondary)
                         }
                     }
-                    .foregroundColor(.primary)
+                    .buttonStyle(.plain)
                 }
 
                 Section("儲存空間") {
