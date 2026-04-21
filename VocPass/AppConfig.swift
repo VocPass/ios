@@ -9,20 +9,14 @@ enum AppConfig {
         #endif
     }
 
+    static let defaultHost = "https://vocpass.com"
+
     static var vocPassAPIHost: String {
-        #if DEBUG
-        return "https://vocpass.com"
-        #else
-        return "https://vocpass.com"
-        #endif
+        CacheService.shared.customAPIHost ?? defaultHost
     }
 
     static var vocPassAuthHost: String {
-        #if DEBUG
-        return "https://vocpass.com"
-        #else
-        return "https://vocpass.com"
-        #endif
+        CacheService.shared.customAPIHost ?? defaultHost
     }
 
     static let discordURL = URL(string: "https://dc.vocpass.com")!

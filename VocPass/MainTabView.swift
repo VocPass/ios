@@ -303,6 +303,7 @@ struct SettingsView: View {
     @State private var developers: [DeveloperInfo] = []
     @State private var isLoadingDevelopers = false
     @State private var developerLoadError: String?
+    @State private var showServerSheet = false
 
     var body: some View {
         NavigationStack {
@@ -339,6 +340,22 @@ struct SettingsView: View {
                             }
                         }
                     }
+
+                    Button {
+                        showServerSheet = true
+                    } label: {
+                        HStack {
+                            Label("伺服器設定", systemImage: "server.rack")
+                            Spacer()
+                            Text(CacheService.shared.customAPIHost != nil ? "自訂" : "預設")
+                                .foregroundColor(.secondary)
+                                .font(.subheadline)
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .foregroundColor(.primary)
                 }
 
                 Section("儲存空間") {
@@ -440,6 +457,9 @@ struct SettingsView: View {
                     await loadDevelopers()
                 }
             }
+            .sheet(isPresented: $showServerSheet) {
+                ServerSettingsSheet()
+            }
         }
     }
 
@@ -480,6 +500,116 @@ struct SettingsView: View {
         formatter.allowedUnits = [.useKB, .useMB]
         formatter.countStyle = .file
         imageCacheSize = formatter.string(fromByteCount: bytes)
+    }
+}
+
+// MARK: - 伺服器設定 Sheet
+struct ServerSettingsSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var hostInput: String = CacheService.shared.customAPIHost ?? ""
+    @State private var testState: TestState = .idle
+
+    enum TestState: Equatable {
+        case idle, testing, success, failure(String)
+    }
+
+    private var isUsingCustom: Bool { CacheService.shared.customAPIHost != nil }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("https://vocpass.com", text: $hostInput)
+                        .keyboardType(.URL)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                } header: {
+                    Text("API 伺服器網址")
+                } footer: {
+                    Text("留空則使用預設伺服器（https://vocpass.com）")
+                }
+
+                Section {
+                    Button {
+                        Task { await testConnection() }
+                    } label: {
+                        HStack {
+                            if case .testing = testState {
+                                ProgressView().padding(.trailing, 4)
+                            }
+                            Text(testButtonLabel)
+                        }
+                    }
+                    .disabled(hostInput.trimmingCharacters(in: .whitespaces).isEmpty || testState == .testing)
+
+                    switch testState {
+                    case .success:
+                        Label("連線成功，已儲存", systemImage: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                    case .failure(let msg):
+                        Label(msg, systemImage: "xmark.circle.fill")
+                            .foregroundColor(.red)
+                            .font(.caption)
+                    default:
+                        EmptyView()
+                    }
+                }
+
+                if isUsingCustom {
+                    Section {
+                        Button(role: .destructive) {
+                            CacheService.shared.customAPIHost = nil
+                            hostInput = ""
+                            testState = .idle
+                        } label: {
+                            Label("恢復使用預設伺服器", systemImage: "arrow.counterclockwise")
+                        }
+                    }
+                }
+            }
+            .navigationTitle("伺服器設定")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("關閉") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private var testButtonLabel: String {
+        switch testState {
+        case .testing: return "測試中…"
+        default: return "測試並儲存"
+        }
+    }
+
+    private func testConnection() async {
+        let raw = hostInput.trimmingCharacters(in: .whitespaces)
+        let base = raw.hasSuffix("/") ? String(raw.dropLast()) : raw
+        guard let url = URL(string: "\(base)/selfhost") else {
+            testState = .failure("網址格式無效")
+            return
+        }
+        await MainActor.run { testState = .testing }
+        do {
+            var req = URLRequest(url: url, timeoutInterval: 10)
+            req.httpMethod = "GET"
+            let (_, response) = try await URLSession.shared.data(for: req)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            await MainActor.run {
+                if status == 200 {
+                    CacheService.shared.customAPIHost = base
+                    testState = .success
+                } else {
+                    testState = .failure("伺服器回傳 \(status)，非 200")
+                }
+            }
+        } catch {
+            await MainActor.run {
+                testState = .failure(error.localizedDescription)
+            }
+        }
     }
 }
 

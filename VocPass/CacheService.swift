@@ -39,6 +39,13 @@ class CacheService {
         case weeksPerSemester = "weeks_per_semester"
         case periodsPerDay = "periods_per_day"
         case passingScore = "passing_score"
+        case customAPIHost = "custom_api_host"
+    }
+
+    // MARK: - 自訂伺服器網址
+    var customAPIHost: String? {
+        get { userDefaults.string(forKey: CacheKey.customAPIHost.rawValue) }
+        set { userDefaults.set(newValue, forKey: CacheKey.customAPIHost.rawValue) }
     }
 
     // MARK: - 課表顯示節數
