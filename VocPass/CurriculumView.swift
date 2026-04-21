@@ -136,10 +136,13 @@ struct CurriculumView: View {
                 }
             }
             .sheet(isPresented: $showShareSheet) {
-                CurriculumShareSheet()
-                    .environmentObject(apiService)
-                    .presentationDetents([.medium])
-                    .presentationDragIndicator(.visible)
+                CurriculumShareSheet(onDownloaded: { timetable in
+                    curriculum = timetable.curriculum
+                    apiPeriodTimes = timetable.periodTimes
+                })
+                .environmentObject(apiService)
+                .presentationDetents([.medium])
+                .presentationDragIndicator(.visible)
             }
             .sheet(isPresented: Binding(
                 get: { editingPeriod != nil },
@@ -625,6 +628,8 @@ struct CellEditSheet: View {
 // MARK: - 課表分享 Sheet
 
 struct CurriculumShareSheet: View {
+    var onDownloaded: ((TimetableData) -> Void)? = nil
+
     @EnvironmentObject var apiService: APIService
     @StateObject private var vocPassAuth = VocPassAuthService.shared
 
@@ -875,8 +880,12 @@ struct CurriculumShareSheet: View {
         downloadError = nil
         downloadMessage = nil
         do {
-            _ = try await apiService.fetchSharedCurriculum(username: target)
-            await MainActor.run { downloadMessage = "已成功下載 @\(target) 的課表" }
+            let timetable = try await apiService.fetchSharedCurriculum(username: target)
+            CacheService.shared.cacheTimetable(timetable)
+            await MainActor.run {
+                downloadMessage = "已成功下載 @\(target) 的課表"
+                onDownloaded?(timetable)
+            }
         } catch {
             await MainActor.run { downloadError = error.localizedDescription }
         }
