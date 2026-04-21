@@ -602,7 +602,7 @@ struct ServerSettingsSheet: View {
                     CacheService.shared.customAPIHost = base
                     testState = .success
                 } else {
-                    testState = .failure("伺服器回傳 \(status)，非 200")
+                    testState = .failure("伺服器回傳 \(status)，請確認網址是否正確且伺服器正常運作")
                 }
             }
         } catch {
