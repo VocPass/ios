@@ -357,7 +357,13 @@ class APIService: ObservableObject {
             throw APIError.httpStatus((response as? HTTPURLResponse)?.statusCode ?? -1)
         }
 
-        let curriculum = try JSONDecoder().decode([String: CourseInfo].self, from: data)
+        let decoder = JSONDecoder()
+        let curriculum: [String: CourseInfo]
+        if let wrapped = try? decoder.decode(APIResponse<[String: CourseInfo]>.self, from: data) {
+            curriculum = wrapped.data
+        } else {
+            curriculum = try decoder.decode([String: CourseInfo].self, from: data)
+        }
 
         var entries: [TimetableEntry] = []
         var periodTimes: [String: PeriodTime] = [:]
