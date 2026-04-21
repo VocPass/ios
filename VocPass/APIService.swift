@@ -417,19 +417,28 @@ class APIService: ObservableObject {
         }
 
         var subjectSchedules: [String: [CourseSchedule]] = [:]
-        var coveredKeys = Set<String>()
+        var coveredKeys = Set<String>()      // "weekday|period"
+        var coveredTimeSlots = Set<String>() // "weekday|startTime" — prevent duplicate time slots
 
         // Apply overrides on top of API entries
         if let timetable = cached {
             for entry in timetable.entries {
+                // 跳過無效節次（period 為空）
+                guard !entry.period.isEmpty else { continue }
+
                 let key = "\(entry.weekday)|\(entry.period)"
+                let pt  = effectivePeriodTime(for: entry.period)
+
+                // 以 (weekday, startTime) 去重，避免同一時段有多筆不同 period 標籤（如「十一」與「1」）
+                let timeSlotKey = "\(entry.weekday)|\(pt?.startTime ?? entry.period)"
+                guard !coveredTimeSlots.contains(timeSlotKey) else { continue }
+                coveredTimeSlots.insert(timeSlotKey)
                 coveredKeys.insert(key)
 
                 let subject = manualSubjects[key] ?? entry.subject
                 let extra   = manualExtras[key]
                 let room    = extra.flatMap { $0.room.isEmpty ? nil : $0.room }    ?? entry.room
                 let teacher = extra.flatMap { $0.teacher.isEmpty ? nil : $0.teacher } ?? entry.teacher
-                let pt      = effectivePeriodTime(for: entry.period)
 
                 let schedule = CourseSchedule(
                     weekday: entry.weekday, period: entry.period,
@@ -441,15 +450,32 @@ class APIService: ObservableObject {
         }
 
         // Add manual-only entries (cells not in API timetable)
-        for (key, subject) in manualSubjects where !coveredKeys.contains(key) {
+        // Sort so Chinese period labels ("十一") are processed before Arabic fallbacks ("1"),
+        // ensuring the canonical period name wins when deduplicating by time slot.
+        let chinesePeriodOrder = ["早讀","一","二","三","四","五","六","七","八","九","十",
+                                  "十一","十二","十三","十四","十五"]
+        let sortedManualKeys = manualSubjects.keys.sorted { a, b in
+            let pa = String(a.split(separator: "|").last ?? "")
+            let pb = String(b.split(separator: "|").last ?? "")
+            let ia = chinesePeriodOrder.firstIndex(of: pa) ?? Int.max
+            let ib = chinesePeriodOrder.firstIndex(of: pb) ?? Int.max
+            return ia < ib
+        }
+        for key in sortedManualKeys where !coveredKeys.contains(key) {
+            guard let subject = manualSubjects[key] else { continue }
             let parts = key.split(separator: "|")
             guard parts.count == 2 else { continue }
             let weekday = String(parts[0])
             let period  = String(parts[1])
+            guard !period.isEmpty else { continue }
             let extra   = manualExtras[key]
             let room    = extra.flatMap { $0.room.isEmpty ? nil : $0.room }
             let teacher = extra.flatMap { $0.teacher.isEmpty ? nil : $0.teacher }
             let pt      = effectivePeriodTime(for: period)
+
+            let timeSlotKey = "\(weekday)|\(pt?.startTime ?? period)"
+            guard !coveredTimeSlots.contains(timeSlotKey) else { continue }
+            coveredTimeSlots.insert(timeSlotKey)
 
             let schedule = CourseSchedule(
                 weekday: weekday, period: period,

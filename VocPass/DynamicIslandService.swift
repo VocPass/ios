@@ -119,18 +119,33 @@ final class DynamicIslandService: ObservableObject {
             }
 
         // 純手動輸入（API 沒有的格子）
-        let coveredPeriods = Set(slots.map { $0.entry.period })
-        for (key, subject) in manualCurriculum {
-            guard !subject.isEmpty else { continue }
+        var coveredPeriods = Set(slots.map { $0.entry.period })
+        var coveredStartTimes = Set(slots.map { $0.start })
+        // 中文節次優先：先排序使中文節次在前，避免 "1"/"2" 搶先覆蓋 "十一"/"十二"
+        let chinesePeriodOrder = ["早讀","一","二","三","四","五","六","七","八","九","十",
+                                  "十一","十二","十三","十四","十五"]
+        let sortedManualKeys = manualCurriculum.keys.sorted { a, b in
+            let pa = String(a.split(separator: "|").last ?? "")
+            let pb = String(b.split(separator: "|").last ?? "")
+            let ia = chinesePeriodOrder.firstIndex(of: pa) ?? Int.max
+            let ib = chinesePeriodOrder.firstIndex(of: pb) ?? Int.max
+            return ia < ib
+        }
+        for key in sortedManualKeys {
+            guard let subject = manualCurriculum[key], !subject.isEmpty else { continue }
             let parts = key.split(separator: "|")
             guard parts.count == 2 else { continue }
             let weekday = String(parts[0])
             let period = String(parts[1])
-            guard weekday == todayWeekday, !coveredPeriods.contains(period) else { continue }
+            guard !period.isEmpty, weekday == todayWeekday, !coveredPeriods.contains(period) else { continue }
             guard let pt = periodTime(for: period, in: timetable),
                   let start = Self.parseTime(pt.startTime, on: date, calendar: calendar),
                   let end   = Self.parseTime(pt.endTime,   on: date, calendar: calendar)
             else { continue }
+            // 以 startTime 去重，避免舊殘留的 "1"/"2" 節次與 "十一"/"十二" 重複出現
+            guard !coveredStartTimes.contains(start) else { continue }
+            coveredPeriods.insert(period)
+            coveredStartTimes.insert(start)
             slots.append(Slot(entry: TimetableEntry(weekday: weekday, period: period, subject: subject),
                               start: start, end: end))
         }

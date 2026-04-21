@@ -220,25 +220,38 @@ private func slotsForDay(
             teacher: rt?.teacher ?? entry.teacher ?? ""
         )
     }
-    // Manual-only entries (cells added by user that don't exist in API)
-    for (key, subject) in manualCurriculum {
+    // Manual-only entries — Chinese period labels first to win time-slot deduplication
+    let chinesePeriodOrder = ["早讀","一","二","三","四","五","六","七","八","九","十",
+                              "十一","十二","十三","十四","十五"]
+    let sortedManualKeys = manualCurriculum.keys.sorted { a, b in
+        let pa = String(a.split(separator: "|").last ?? "")
+        let pb = String(b.split(separator: "|").last ?? "")
+        let ia = chinesePeriodOrder.firstIndex(of: pa) ?? Int.max
+        let ib = chinesePeriodOrder.firstIndex(of: pb) ?? Int.max
+        return ia < ib
+    }
+    for key in sortedManualKeys {
+        guard let subject = manualCurriculum[key] else { continue }
         let parts = key.split(separator: "|")
         guard parts.count == 2,
               String(parts[0]) == todayWeekday else { continue }
         let period = String(parts[1])
-        if periodToEntry[period] == nil {
-            let rt = manualRoomTeacher[key]
-            periodToEntry[period] = (subject: subject, room: rt?.room ?? "", teacher: rt?.teacher ?? "")
-        }
+        guard !period.isEmpty, periodToEntry[period] == nil else { continue }
+        let rt = manualRoomTeacher[key]
+        periodToEntry[period] = (subject: subject, room: rt?.room ?? "", teacher: rt?.teacher ?? "")
     }
 
+    // Build slots, deduplicating by startTime to eliminate stale Arabic-numeral period entries
+    var seenStartTimes = Set<Date>()
     return periodToEntry
         .sorted { (periodOrder[$0.key] ?? 99) < (periodOrder[$1.key] ?? 99) }
-        .compactMap { period, info in
-            guard let pt = resolvePeriodTime(for: period, timetable: timetable, manualTimes: manualPeriodTimes),
+        .compactMap { period, info -> ScheduleSlot? in
+            guard !period.isEmpty,
+                  let pt = resolvePeriodTime(for: period, timetable: timetable, manualTimes: manualPeriodTimes),
                   let start = parseTime(pt.startTime, on: date, calendar: calendar),
                   let end   = parseTime(pt.endTime,   on: date, calendar: calendar)
             else { return nil }
+            guard seenStartTimes.insert(start).inserted else { return nil }
             return ScheduleSlot(period: period, subject: info.subject,
                                 startTime: start, endTime: end, isCurrent: false,
                                 room: info.room, teacher: info.teacher)

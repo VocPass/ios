@@ -123,18 +123,25 @@ struct SharedCurriculumView: View {
 
     private let weekdays = ["一", "二", "三", "四", "五"]
     private let periodOrder = ["早讀", "一", "二", "三", "四", "五", "六", "七", "八", "九", "十",
+                                "十一", "十二", "十三", "十四", "十五",
                                 "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]
     private let defaultPeriods = ["一", "二", "三", "四", "五", "六", "七", "八"]
 
     private var periods: [String] {
         let all = curriculum.values.flatMap { $0.schedule.map { $0.period } }
-        let unique = Array(Set(all)).filter { !$0.isEmpty }
-        if unique.isEmpty { return defaultPeriods }
-        return unique.sorted {
+        let sorted = Array(Set(all)).filter { !$0.isEmpty }.sorted {
             let ia = periodOrder.firstIndex(of: $0) ?? Int.max
             let ib = periodOrder.firstIndex(of: $1) ?? Int.max
             if ia != Int.max || ib != Int.max { return ia < ib }
             return (Int($0) ?? 0) < (Int($1) ?? 0)
+        }
+        if sorted.isEmpty { return defaultPeriods }
+        // 以 startTime 去重：同一時段只保留排序最前的節次標籤
+        var seenStarts = Set<String>()
+        return sorted.filter { period in
+            let start = periodTimes[period]?.startTime ?? ""
+            if start.isEmpty { return true }
+            return seenStarts.insert(start).inserted
         }
     }
 
