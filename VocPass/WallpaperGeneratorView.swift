@@ -669,7 +669,7 @@ struct WallpaperEditorView: View {
             if let list = try? await FontLoader.shared.fetchList() {
                 await MainActor.run { self.fontList = list }
                 let defaultFamily = template.fontFamily ?? "Noto"
-                if let psName = await FontLoader.shared.load(displayName: defaultFamily) {
+                if await FontLoader.shared.load(displayName: defaultFamily) != nil {
                     await MainActor.run { 
                         self.fontRefreshTick &+= 1
                         // 觸發重新繪製：通知 layers 有更新（透過重新賦予 ID 強制刷新 UI）
@@ -729,7 +729,7 @@ struct WallpaperEditorView: View {
                 let initCellH = tableH / CGFloat(max(newCount, 1))
                 baseFont = max(8, min(initCellW, initCellH) * 0.32)
             }
-            var newLayer = EditorLayer(
+            let newLayer = EditorLayer(
                 kind: .table,
                 image: tableImg,
                 sourceURLs: tableConfig.images,
@@ -980,8 +980,9 @@ struct WallpaperEditorView: View {
     private func transformHandleOverlay(for layer: EditorLayer) -> some View {
         GeometryReader { geo in
             let size = geo.size
-            let handleInset: CGFloat = max(8, min(size.width, size.height) * 0.06)
             let handleSize: CGFloat = max(20, min(size.width, size.height) * 0.12)
+            let handleHitSize: CGFloat = max(44, handleSize * 1.8)
+            let handleMargin: CGFloat = 4
             let handleCenterX = size.width / 2
             let handleCenterY = size.height / 2
 
@@ -990,8 +991,12 @@ struct WallpaperEditorView: View {
                     transformHandleButton(
                         systemImage: nil,
                         tint: .blue,
-                        center: CGPoint(x: size.width - handleInset, y: size.height - handleInset),
+                        center: CGPoint(
+                            x: size.width - handleHitSize / 2 - handleMargin,
+                            y: size.height - handleHitSize / 2 - handleMargin
+                        ),
                         size: handleSize,
+                        hitSize: handleHitSize,
                         layer: layer,
                         handle: .scale,
                         action: { value in
@@ -1025,8 +1030,12 @@ struct WallpaperEditorView: View {
                     transformHandleButton(
                         systemImage: "arrow.triangle.2.circlepath",
                         tint: .orange,
-                        center: CGPoint(x: size.width - handleInset, y: handleInset),
+                        center: CGPoint(
+                            x: size.width - handleHitSize / 2 - handleMargin,
+                            y: handleHitSize / 2 + handleMargin
+                        ),
                         size: handleSize,
+                        hitSize: handleHitSize,
                         layer: layer,
                         handle: .rotate,
                         action: { value in
@@ -1063,13 +1072,13 @@ struct WallpaperEditorView: View {
         tint: Color,
         center: CGPoint,
         size: CGFloat,
+        hitSize: CGFloat,
         layer: EditorLayer,
         handle: TransformHandle,
         action: @escaping (DragGesture.Value) -> Void,
         onEnded: @escaping () -> Void
     ) -> some View {
-        let hitSize = max(44, size * 1.8)
-        Circle()
+        return Circle()
             .fill(.white)
             .frame(width: size, height: size)
             .overlay {
@@ -1090,6 +1099,8 @@ struct WallpaperEditorView: View {
             .frame(width: hitSize, height: hitSize)
             .position(center)
             .contentShape(Rectangle())
+            .allowsHitTesting(true)
+            .zIndex(10)
             .highPriorityGesture(
                 DragGesture(minimumDistance: 0, coordinateSpace: .named(layer.id))
                     .onChanged { value in
