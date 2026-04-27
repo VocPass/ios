@@ -948,6 +948,7 @@ struct WallpaperEditorView: View {
                         pinchLayerID = nil
                     }
             )
+            , including: .gesture
         )
         .simultaneousGesture(
             RotationGesture()
@@ -968,6 +969,7 @@ struct WallpaperEditorView: View {
                     rotationBaseAngle = nil
                     rotationLayerID = nil
                 }
+            , including: .gesture
         )
         .onTapGesture {
             selectedLayerID = layer.id
@@ -1066,6 +1068,7 @@ struct WallpaperEditorView: View {
         action: @escaping (DragGesture.Value) -> Void,
         onEnded: @escaping () -> Void
     ) -> some View {
+        let hitSize = max(44, size * 1.8)
         Circle()
             .fill(.white)
             .frame(width: size, height: size)
@@ -1084,8 +1087,9 @@ struct WallpaperEditorView: View {
                 Circle().stroke(Color.black.opacity(0.15), lineWidth: 1)
             )
             .shadow(color: .black.opacity(0.18), radius: 4, x: 0, y: 2)
+            .frame(width: hitSize, height: hitSize)
             .position(center)
-            .contentShape(Circle())
+            .contentShape(Rectangle())
             .highPriorityGesture(
                 DragGesture(minimumDistance: 0, coordinateSpace: .named(layer.id))
                     .onChanged { value in
