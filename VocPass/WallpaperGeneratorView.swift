@@ -252,11 +252,6 @@ private enum LayerKind {
     case sticker
 }
 
-private enum TransformHandle {
-    case scale
-    case rotate
-}
-
 private struct EditorLayer: Identifiable {
     var id = UUID()
     var kind: LayerKind
@@ -309,10 +304,10 @@ struct WallpaperEditorView: View {
     @State private var showCenterGuides = false
     @State private var guidesH = false   // 水平中心對齊
     @State private var guidesV = false   // 垂直中心對齊
-    @State private var activeTransformLayerID: UUID?
-    @State private var activeTransformHandle: TransformHandle?
-    @State private var transformBaseSize: CGSize?
-    @State private var transformBaseRotation: Angle?
+    @State private var handleLayerID: UUID?
+    @State private var handleBaseSize: CGSize?
+    @State private var handleBaseRotation: Angle?
+    @State private var handleStartVector: CGVector?
 
     private let snapThreshold: CGFloat = 6  // 吸附閾值（像素）
 
@@ -329,6 +324,13 @@ struct WallpaperEditorView: View {
            !layers.contains(where: { $0.id == selID }) {
             selectedLayerID = nil
         }
+    }
+
+    private func resetHandleGestureState() {
+        handleLayerID = nil
+        handleBaseSize = nil
+        handleBaseRotation = nil
+        handleStartVector = nil
     }
 
     var body: some View {
@@ -669,7 +671,7 @@ struct WallpaperEditorView: View {
             if let list = try? await FontLoader.shared.fetchList() {
                 await MainActor.run { self.fontList = list }
                 let defaultFamily = template.fontFamily ?? "Noto"
-                if await FontLoader.shared.load(displayName: defaultFamily) != nil {
+                if let psName = await FontLoader.shared.load(displayName: defaultFamily) {
                     await MainActor.run { 
                         self.fontRefreshTick &+= 1
                         // 觸發重新繪製：通知 layers 有更新（透過重新賦予 ID 強制刷新 UI）
@@ -729,7 +731,7 @@ struct WallpaperEditorView: View {
                 let initCellH = tableH / CGFloat(max(newCount, 1))
                 baseFont = max(8, min(initCellW, initCellH) * 0.32)
             }
-            let newLayer = EditorLayer(
+            var newLayer = EditorLayer(
                 kind: .table,
                 image: tableImg,
                 sourceURLs: tableConfig.images,
@@ -878,21 +880,78 @@ struct WallpaperEditorView: View {
         .rotationEffect(layer.rotation)
         .overlay {
             if isSelected {
-                ZStack {
-                    Rectangle()
-                        .stroke(Color.accentColor, lineWidth: 2)
-                        .frame(width: layer.size.width + 4, height: layer.size.height + 4)
-                    transformHandleOverlay(for: layer)
+                Rectangle()
+                    .stroke(Color.accentColor, lineWidth: 2)
+                    .frame(width: layer.size.width + 4, height: layer.size.height + 4)
+            }
+        }
+        .overlay {
+            if isSelected, layer.kind != .background {
+                GeometryReader { proxy in
+                    Circle()
+                        .fill(Color.accentColor)
+                        .frame(width: 28, height: 28)
+                        .overlay {
+                            Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundStyle(.white)
+                        }
+                        .shadow(color: .black.opacity(0.25), radius: 2, x: 0, y: 1)
+                        .position(x: proxy.size.width - 6, y: proxy.size.height - 6)
+                        .gesture(
+                            DragGesture(minimumDistance: 0, coordinateSpace: .global)
+                                .onChanged { value in
+                                    guard let idx = layers.firstIndex(where: { $0.id == layer.id }) else { return }
+                                    let center = CGPoint(x: proxy.frame(in: .global).midX,
+                                                         y: proxy.frame(in: .global).midY)
+                                    if handleLayerID != layer.id {
+                                        pushUndo()
+                                        handleLayerID = layer.id
+                                        handleBaseSize = layers[idx].size
+                                        handleBaseRotation = layers[idx].rotation
+                                        handleStartVector = CGVector(
+                                            dx: value.startLocation.x - center.x,
+                                            dy: value.startLocation.y - center.y
+                                        )
+                                    }
+                                    guard let baseSize = handleBaseSize,
+                                          let baseRotation = handleBaseRotation,
+                                          let startVector = handleStartVector else { return }
+
+                                    let currentVector = CGVector(
+                                        dx: value.location.x - center.x,
+                                        dy: value.location.y - center.y
+                                    )
+                                    let startDistance = max(1, hypot(startVector.dx, startVector.dy))
+                                    let currentDistance = max(1, hypot(currentVector.dx, currentVector.dy))
+                                    let scale = max(0.2, min(8.0, currentDistance / startDistance))
+
+                                    let startAngle = atan2(startVector.dy, startVector.dx)
+                                    let currentAngle = atan2(currentVector.dy, currentVector.dx)
+                                    let delta = currentAngle - startAngle
+
+                                    var updated = layers[idx]
+                                    updated.size = CGSize(
+                                        width: max(20, baseSize.width * scale),
+                                        height: max(20, baseSize.height * scale)
+                                    )
+                                    updated.rotation = baseRotation + Angle(radians: delta)
+                                    layers[idx] = updated
+                                    if selectedLayerID != layer.id { selectedLayerID = layer.id }
+                                }
+                                .onEnded { _ in
+                                    resetHandleGestureState()
+                                }
+                        )
                 }
             }
         }
-        .coordinateSpace(name: layer.id)
         .position(x: layer.center.x, y: layer.center.y)
         .gesture(
             SimultaneousGesture(
                 DragGesture()
                     .onChanged { value in
-                        if activeTransformLayerID != nil { return }
+                        if handleLayerID == layer.id { return }
                         if let idx = layers.firstIndex(where: { $0.id == layer.id }) {
                             // 第一次拖動時記錄 undo
                             if dragOffset == .zero {
@@ -928,7 +987,7 @@ struct WallpaperEditorView: View {
                     },
                 MagnificationGesture()
                     .onChanged { value in
-                        if activeTransformLayerID != nil { return }
+                        if handleLayerID == layer.id { return }
                         guard let idx = layers.firstIndex(where: { $0.id == layer.id }) else { return }
                         if pinchLayerID != layer.id {
                             pushUndo()
@@ -948,12 +1007,11 @@ struct WallpaperEditorView: View {
                         pinchLayerID = nil
                     }
             )
-            , including: .gesture
         )
         .simultaneousGesture(
             RotationGesture()
                 .onChanged { angle in
-                    if activeTransformLayerID != nil { return }
+                    if handleLayerID == layer.id { return }
                     guard layer.kind == .sticker,
                           let idx = layers.firstIndex(where: { $0.id == layer.id }) else { return }
                     if rotationLayerID != layer.id {
@@ -969,149 +1027,10 @@ struct WallpaperEditorView: View {
                     rotationBaseAngle = nil
                     rotationLayerID = nil
                 }
-            , including: .gesture
         )
         .onTapGesture {
             selectedLayerID = layer.id
         }
-    }
-
-    @ViewBuilder
-    private func transformHandleOverlay(for layer: EditorLayer) -> some View {
-        GeometryReader { geo in
-            let size = geo.size
-            let handleSize: CGFloat = max(20, min(size.width, size.height) * 0.12)
-            let handleHitSize: CGFloat = max(44, handleSize * 1.8)
-            let handleMargin: CGFloat = 4
-            let handleCenterX = size.width / 2
-            let handleCenterY = size.height / 2
-
-            ZStack {
-                if layer.kind != .background {
-                    transformHandleButton(
-                        systemImage: nil,
-                        tint: .blue,
-                        center: CGPoint(
-                            x: size.width - handleHitSize / 2 - handleMargin,
-                            y: size.height - handleHitSize / 2 - handleMargin
-                        ),
-                        size: handleSize,
-                        hitSize: handleHitSize,
-                        layer: layer,
-                        handle: .scale,
-                        action: { value in
-                            guard let idx = layers.firstIndex(where: { $0.id == layer.id }) else { return }
-                            if activeTransformLayerID != layer.id || activeTransformHandle != .scale {
-                                pushUndo()
-                                activeTransformLayerID = layer.id
-                                activeTransformHandle = .scale
-                                transformBaseSize = layers[idx].size
-                                transformBaseRotation = nil
-                            }
-                            guard let baseSize = transformBaseSize else { return }
-                            let startDistance = max(1, hypot(value.startLocation.x - handleCenterX, value.startLocation.y - handleCenterY))
-                            let currentDistance = max(1, hypot(value.location.x - handleCenterX, value.location.y - handleCenterY))
-                            let scale = max(0.2, currentDistance / startDistance)
-                            var updated = layers[idx]
-                            updated.size = CGSize(
-                                width: max(20, baseSize.width * scale),
-                                height: max(20, baseSize.height * scale)
-                            )
-                            layers[idx] = updated
-                            if selectedLayerID != layer.id { selectedLayerID = layer.id }
-                        },
-                        onEnded: {
-                            transformBaseSize = nil
-                            activeTransformLayerID = nil
-                            activeTransformHandle = nil
-                        }
-                    )
-
-                    transformHandleButton(
-                        systemImage: "arrow.triangle.2.circlepath",
-                        tint: .orange,
-                        center: CGPoint(
-                            x: size.width - handleHitSize / 2 - handleMargin,
-                            y: handleHitSize / 2 + handleMargin
-                        ),
-                        size: handleSize,
-                        hitSize: handleHitSize,
-                        layer: layer,
-                        handle: .rotate,
-                        action: { value in
-                            guard layer.kind == .sticker,
-                                  let idx = layers.firstIndex(where: { $0.id == layer.id }) else { return }
-                            if activeTransformLayerID != layer.id || activeTransformHandle != .rotate {
-                                pushUndo()
-                                activeTransformLayerID = layer.id
-                                activeTransformHandle = .rotate
-                                transformBaseRotation = layers[idx].rotation
-                                transformBaseSize = nil
-                            }
-                            guard let baseRotation = transformBaseRotation else { return }
-                            let center = CGPoint(x: handleCenterX, y: handleCenterY)
-                            let startAngle = atan2(value.startLocation.y - center.y, value.startLocation.x - center.x)
-                            let currentAngle = atan2(value.location.y - center.y, value.location.x - center.x)
-                            layers[idx].rotation = baseRotation + Angle(radians: currentAngle - startAngle)
-                            if selectedLayerID != layer.id { selectedLayerID = layer.id }
-                        },
-                        onEnded: {
-                            transformBaseRotation = nil
-                            activeTransformLayerID = nil
-                            activeTransformHandle = nil
-                        }
-                    )
-                }
-            }
-            .frame(width: size.width, height: size.height)
-        }
-    }
-
-    private func transformHandleButton(
-        systemImage: String?,
-        tint: Color,
-        center: CGPoint,
-        size: CGFloat,
-        hitSize: CGFloat,
-        layer: EditorLayer,
-        handle: TransformHandle,
-        action: @escaping (DragGesture.Value) -> Void,
-        onEnded: @escaping () -> Void
-    ) -> some View {
-        return Circle()
-            .fill(.white)
-            .frame(width: size, height: size)
-            .overlay {
-                if let icon = systemImage {
-                    Image(systemName: icon)
-                        .font(.system(size: size * 0.42, weight: .bold))
-                        .foregroundStyle(tint)
-                } else {
-                    Circle()
-                        .fill(tint)
-                        .frame(width: size * 0.46, height: size * 0.46)
-                }
-            }
-            .overlay(
-                Circle().stroke(Color.black.opacity(0.15), lineWidth: 1)
-            )
-            .shadow(color: .black.opacity(0.18), radius: 4, x: 0, y: 2)
-            .frame(width: hitSize, height: hitSize)
-            .position(center)
-            .contentShape(Rectangle())
-            .allowsHitTesting(true)
-            .zIndex(10)
-            .highPriorityGesture(
-                DragGesture(minimumDistance: 0, coordinateSpace: .named(layer.id))
-                    .onChanged { value in
-                        action(value)
-                    }
-                    .onEnded { _ in
-                        onEnded()
-                    }
-            )
-            .accessibilityLabel(handle == .scale ? "縮放控制點" : "旋轉控制點")
-            .accessibilityHint("單指拖曳調整圖層")
     }
 
     /// 將模板 JSON 中以「table 圖原始解析度」為單位的內縮值換算為畫面顯示像素。
