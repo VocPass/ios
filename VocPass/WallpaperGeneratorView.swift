@@ -304,10 +304,14 @@ struct WallpaperEditorView: View {
     @State private var showCenterGuides = false
     @State private var guidesH = false   // 水平中心對齊
     @State private var guidesV = false   // 垂直中心對齊
-    @State private var handleLayerID: UUID?
-    @State private var handleBaseSize: CGSize?
-    @State private var handleBaseRotation: Angle?
-    @State private var handleStartVector: CGVector?
+    @State private var scaleHandleLayerID: UUID?
+    @State private var scaleHandleBaseSize: CGSize?
+    @State private var scaleHandleStartDistance: CGFloat?
+    @State private var rotateHandleLayerID: UUID?
+    @State private var rotateHandleBaseAngle: Angle?
+    @State private var rotateHandleStartAngle: CGFloat?
+    @State private var showRotateSnapHint = false
+    @State private var rotateSnapDegree: Int = 0
 
     private let snapThreshold: CGFloat = 6  // 吸附閾值（像素）
 
@@ -326,11 +330,22 @@ struct WallpaperEditorView: View {
         }
     }
 
-    private func resetHandleGestureState() {
-        handleLayerID = nil
-        handleBaseSize = nil
-        handleBaseRotation = nil
-        handleStartVector = nil
+    private func resetScaleHandleGestureState() {
+        scaleHandleLayerID = nil
+        scaleHandleBaseSize = nil
+        scaleHandleStartDistance = nil
+    }
+
+    private func resetRotateHandleGestureState() {
+        rotateHandleLayerID = nil
+        rotateHandleBaseAngle = nil
+        rotateHandleStartAngle = nil
+        showRotateSnapHint = false
+    }
+
+    private func normalizeDegree(_ raw: Int) -> Int {
+        let v = raw % 360
+        return v >= 0 ? v : (v + 360)
     }
 
     var body: some View {
@@ -888,61 +903,113 @@ struct WallpaperEditorView: View {
         .overlay {
             if isSelected, layer.kind != .background {
                 GeometryReader { proxy in
-                    Circle()
-                        .fill(Color.accentColor)
-                        .frame(width: 28, height: 28)
-                        .overlay {
-                            Image(systemName: "arrow.up.left.and.arrow.down.right")
-                                .font(.system(size: 12, weight: .bold))
-                                .foregroundStyle(.white)
+                    ZStack {
+                        if showRotateSnapHint {
+                            Text("\(rotateSnapDegree)°")
+                                .font(.caption2.monospacedDigit())
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(.ultraThinMaterial, in: Capsule())
+                                .position(x: proxy.size.width / 2, y: -14)
                         }
-                        .shadow(color: .black.opacity(0.25), radius: 2, x: 0, y: 1)
-                        .position(x: proxy.size.width - 6, y: proxy.size.height - 6)
-                        .gesture(
-                            DragGesture(minimumDistance: 0, coordinateSpace: .global)
-                                .onChanged { value in
-                                    guard let idx = layers.firstIndex(where: { $0.id == layer.id }) else { return }
-                                    let center = CGPoint(x: proxy.frame(in: .global).midX,
-                                                         y: proxy.frame(in: .global).midY)
-                                    if handleLayerID != layer.id {
-                                        pushUndo()
-                                        handleLayerID = layer.id
-                                        handleBaseSize = layers[idx].size
-                                        handleBaseRotation = layers[idx].rotation
-                                        handleStartVector = CGVector(
-                                            dx: value.startLocation.x - center.x,
-                                            dy: value.startLocation.y - center.y
-                                        )
+
+                        // 旋轉控制點（右上）
+                        Circle()
+                            .fill(showRotateSnapHint ? Color.orange : Color.accentColor)
+                            .frame(width: 28, height: 28)
+                            .overlay {
+                                Image(systemName: "rotate.right.fill")
+                                    .font(.system(size: 12, weight: .bold))
+                                    .foregroundStyle(.white)
+                            }
+                            .shadow(color: .black.opacity(0.25), radius: 2, x: 0, y: 1)
+                            .position(x: proxy.size.width - 6, y: 6)
+                            .gesture(
+                                DragGesture(minimumDistance: 0, coordinateSpace: .global)
+                                    .onChanged { value in
+                                        guard let idx = layers.firstIndex(where: { $0.id == layer.id }) else { return }
+                                        let center = CGPoint(x: proxy.frame(in: .global).midX,
+                                                             y: proxy.frame(in: .global).midY)
+                                        if rotateHandleLayerID != layer.id {
+                                            pushUndo()
+                                            rotateHandleLayerID = layer.id
+                                            rotateHandleBaseAngle = layers[idx].rotation
+                                            rotateHandleStartAngle = atan2(
+                                                value.startLocation.y - center.y,
+                                                value.startLocation.x - center.x
+                                            )
+                                        }
+                                        guard let base = rotateHandleBaseAngle,
+                                              let start = rotateHandleStartAngle else { return }
+                                        let current = atan2(value.location.y - center.y,
+                                                            value.location.x - center.x)
+                                        let rawRadians = base.radians + Double(current - start)
+                                        let step = Double.pi / 2
+                                        let snapped = (rawRadians / step).rounded() * step
+                                        let tolerance = Double.pi * 6 / 180
+
+                                        if abs(rawRadians - snapped) <= tolerance {
+                                            layers[idx].rotation = Angle(radians: snapped)
+                                            showRotateSnapHint = true
+                                            rotateSnapDegree = normalizeDegree(Int((snapped * 180 / .pi).rounded()))
+                                        } else {
+                                            layers[idx].rotation = Angle(radians: rawRadians)
+                                            showRotateSnapHint = false
+                                        }
+                                        if selectedLayerID != layer.id { selectedLayerID = layer.id }
                                     }
-                                    guard let baseSize = handleBaseSize,
-                                          let baseRotation = handleBaseRotation,
-                                          let startVector = handleStartVector else { return }
+                                    .onEnded { _ in
+                                        resetRotateHandleGestureState()
+                                    }
+                            )
 
-                                    let currentVector = CGVector(
-                                        dx: value.location.x - center.x,
-                                        dy: value.location.y - center.y
-                                    )
-                                    let startDistance = max(1, hypot(startVector.dx, startVector.dy))
-                                    let currentDistance = max(1, hypot(currentVector.dx, currentVector.dy))
-                                    let scale = max(0.2, min(8.0, currentDistance / startDistance))
+                        // 縮放控制點（右下）
+                        Circle()
+                            .fill(Color.accentColor)
+                            .frame(width: 28, height: 28)
+                            .overlay {
+                                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                    .font(.system(size: 12, weight: .bold))
+                                    .foregroundStyle(.white)
+                            }
+                            .shadow(color: .black.opacity(0.25), radius: 2, x: 0, y: 1)
+                            .position(x: proxy.size.width - 6, y: proxy.size.height - 6)
+                            .gesture(
+                                DragGesture(minimumDistance: 0, coordinateSpace: .global)
+                                    .onChanged { value in
+                                        guard let idx = layers.firstIndex(where: { $0.id == layer.id }) else { return }
+                                        let center = CGPoint(x: proxy.frame(in: .global).midX,
+                                                             y: proxy.frame(in: .global).midY)
+                                        if scaleHandleLayerID != layer.id {
+                                            pushUndo()
+                                            scaleHandleLayerID = layer.id
+                                            scaleHandleBaseSize = layers[idx].size
+                                            scaleHandleStartDistance = max(1, hypot(
+                                                value.startLocation.x - center.x,
+                                                value.startLocation.y - center.y
+                                            ))
+                                        }
+                                        guard let baseSize = scaleHandleBaseSize,
+                                              let startDistance = scaleHandleStartDistance else { return }
+                                        let currentDistance = max(1, hypot(
+                                            value.location.x - center.x,
+                                            value.location.y - center.y
+                                        ))
+                                        let scale = max(0.2, min(8.0, currentDistance / startDistance))
 
-                                    let startAngle = atan2(startVector.dy, startVector.dx)
-                                    let currentAngle = atan2(currentVector.dy, currentVector.dx)
-                                    let delta = currentAngle - startAngle
-
-                                    var updated = layers[idx]
-                                    updated.size = CGSize(
-                                        width: max(20, baseSize.width * scale),
-                                        height: max(20, baseSize.height * scale)
-                                    )
-                                    updated.rotation = baseRotation + Angle(radians: delta)
-                                    layers[idx] = updated
-                                    if selectedLayerID != layer.id { selectedLayerID = layer.id }
-                                }
-                                .onEnded { _ in
-                                    resetHandleGestureState()
-                                }
-                        )
+                                        var updated = layers[idx]
+                                        updated.size = CGSize(
+                                            width: max(20, baseSize.width * scale),
+                                            height: max(20, baseSize.height * scale)
+                                        )
+                                        layers[idx] = updated
+                                        if selectedLayerID != layer.id { selectedLayerID = layer.id }
+                                    }
+                                    .onEnded { _ in
+                                        resetScaleHandleGestureState()
+                                    }
+                            )
+                    }
                 }
             }
         }
@@ -951,7 +1018,7 @@ struct WallpaperEditorView: View {
             SimultaneousGesture(
                 DragGesture()
                     .onChanged { value in
-                        if handleLayerID == layer.id { return }
+                        if scaleHandleLayerID == layer.id || rotateHandleLayerID == layer.id { return }
                         if let idx = layers.firstIndex(where: { $0.id == layer.id }) {
                             // 第一次拖動時記錄 undo
                             if dragOffset == .zero {
@@ -987,7 +1054,7 @@ struct WallpaperEditorView: View {
                     },
                 MagnificationGesture()
                     .onChanged { value in
-                        if handleLayerID == layer.id { return }
+                        if scaleHandleLayerID == layer.id || rotateHandleLayerID == layer.id { return }
                         guard let idx = layers.firstIndex(where: { $0.id == layer.id }) else { return }
                         if pinchLayerID != layer.id {
                             pushUndo()
@@ -1011,7 +1078,7 @@ struct WallpaperEditorView: View {
         .simultaneousGesture(
             RotationGesture()
                 .onChanged { angle in
-                    if handleLayerID == layer.id { return }
+                    if scaleHandleLayerID == layer.id || rotateHandleLayerID == layer.id { return }
                     guard layer.kind == .sticker,
                           let idx = layers.firstIndex(where: { $0.id == layer.id }) else { return }
                     if rotationLayerID != layer.id {
