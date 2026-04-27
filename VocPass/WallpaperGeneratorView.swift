@@ -252,6 +252,11 @@ private enum LayerKind {
     case sticker
 }
 
+private enum TransformHandle {
+    case scale
+    case rotate
+}
+
 private struct EditorLayer: Identifiable {
     var id = UUID()
     var kind: LayerKind
@@ -304,6 +309,10 @@ struct WallpaperEditorView: View {
     @State private var showCenterGuides = false
     @State private var guidesH = false   // 水平中心對齊
     @State private var guidesV = false   // 垂直中心對齊
+    @State private var activeTransformLayerID: UUID?
+    @State private var activeTransformHandle: TransformHandle?
+    @State private var transformBaseSize: CGSize?
+    @State private var transformBaseRotation: Angle?
 
     private let snapThreshold: CGFloat = 6  // 吸附閾值（像素）
 
@@ -869,9 +878,12 @@ struct WallpaperEditorView: View {
         .rotationEffect(layer.rotation)
         .overlay {
             if isSelected {
-                Rectangle()
-                    .stroke(Color.accentColor, lineWidth: 2)
-                    .frame(width: layer.size.width + 4, height: layer.size.height + 4)
+                ZStack {
+                    Rectangle()
+                        .stroke(Color.accentColor, lineWidth: 2)
+                        .frame(width: layer.size.width + 4, height: layer.size.height + 4)
+                    transformHandleOverlay(for: layer)
+                }
             }
         }
         .position(x: layer.center.x, y: layer.center.y)
@@ -956,6 +968,122 @@ struct WallpaperEditorView: View {
         .onTapGesture {
             selectedLayerID = layer.id
         }
+    }
+
+    @ViewBuilder
+    private func transformHandleOverlay(for layer: EditorLayer) -> some View {
+        GeometryReader { geo in
+            let size = geo.size
+            let handleInset: CGFloat = max(10, min(size.width, size.height) * 0.08)
+            let handleSize: CGFloat = max(28, min(size.width, size.height) * 0.16)
+            let handleCenterX = size.width / 2
+            let handleCenterY = size.height / 2
+
+            ZStack {
+                if layer.kind != .background {
+                    transformHandleButton(
+                        systemImage: "arrow.up.left.and.arrow.down.right",
+                        tint: .blue,
+                        center: CGPoint(x: size.width - handleInset, y: size.height - handleInset),
+                        size: handleSize,
+                        handle: .scale,
+                        action: { value in
+                            guard let idx = layers.firstIndex(where: { $0.id == layer.id }) else { return }
+                            if activeTransformLayerID != layer.id || activeTransformHandle != .scale {
+                                pushUndo()
+                                activeTransformLayerID = layer.id
+                                activeTransformHandle = .scale
+                                transformBaseSize = layers[idx].size
+                                transformBaseRotation = nil
+                            }
+                            guard let baseSize = transformBaseSize else { return }
+                            let startDistance = max(1, hypot(value.startLocation.x - handleCenterX, value.startLocation.y - handleCenterY))
+                            let currentDistance = max(1, hypot(value.location.x - handleCenterX, value.location.y - handleCenterY))
+                            let scale = max(0.2, currentDistance / startDistance)
+                            var updated = layers[idx]
+                            updated.size = CGSize(
+                                width: max(20, baseSize.width * scale),
+                                height: max(20, baseSize.height * scale)
+                            )
+                            layers[idx] = updated
+                            if selectedLayerID != layer.id { selectedLayerID = layer.id }
+                        },
+                        onEnded: {
+                            transformBaseSize = nil
+                            activeTransformLayerID = nil
+                            activeTransformHandle = nil
+                        }
+                    )
+
+                    transformHandleButton(
+                        systemImage: "arrow.triangle.2.circlepath",
+                        tint: .orange,
+                        center: CGPoint(x: size.width - handleInset, y: handleInset),
+                        size: handleSize,
+                        handle: .rotate,
+                        action: { value in
+                            guard layer.kind == .sticker,
+                                  let idx = layers.firstIndex(where: { $0.id == layer.id }) else { return }
+                            if activeTransformLayerID != layer.id || activeTransformHandle != .rotate {
+                                pushUndo()
+                                activeTransformLayerID = layer.id
+                                activeTransformHandle = .rotate
+                                transformBaseRotation = layers[idx].rotation
+                                transformBaseSize = nil
+                            }
+                            guard let baseRotation = transformBaseRotation else { return }
+                            let center = CGPoint(x: handleCenterX, y: handleCenterY)
+                            let startAngle = atan2(value.startLocation.y - center.y, value.startLocation.x - center.x)
+                            let currentAngle = atan2(value.location.y - center.y, value.location.x - center.x)
+                            layers[idx].rotation = baseRotation + Angle(radians: currentAngle - startAngle)
+                            if selectedLayerID != layer.id { selectedLayerID = layer.id }
+                        },
+                        onEnded: {
+                            transformBaseRotation = nil
+                            activeTransformLayerID = nil
+                            activeTransformHandle = nil
+                        }
+                    )
+                }
+            }
+            .frame(width: size.width, height: size.height)
+        }
+    }
+
+    private func transformHandleButton(
+        systemImage: String,
+        tint: Color,
+        center: CGPoint,
+        size: CGFloat,
+        handle: TransformHandle,
+        action: @escaping (DragGesture.Value) -> Void,
+        onEnded: @escaping () -> Void
+    ) -> some View {
+        Circle()
+            .fill(.white)
+            .frame(width: size, height: size)
+            .overlay(
+                Image(systemName: systemImage)
+                    .font(.system(size: size * 0.42, weight: .bold))
+                    .foregroundStyle(tint)
+            )
+            .overlay(
+                Circle().stroke(Color.black.opacity(0.15), lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.18), radius: 4, x: 0, y: 2)
+            .position(center)
+            .contentShape(Circle())
+            .highPriorityGesture(
+                DragGesture(minimumDistance: 0, coordinateSpace: .local)
+                    .onChanged { value in
+                        action(value)
+                    }
+                    .onEnded { _ in
+                        onEnded()
+                    }
+            )
+            .accessibilityLabel(handle == .scale ? "縮放控制點" : "旋轉控制點")
+            .accessibilityHint("單指拖曳調整圖層")
     }
 
     /// 將模板 JSON 中以「table 圖原始解析度」為單位的內縮值換算為畫面顯示像素。
