@@ -886,11 +886,13 @@ struct WallpaperEditorView: View {
                 }
             }
         }
+        .coordinateSpace(name: layer.id)
         .position(x: layer.center.x, y: layer.center.y)
         .gesture(
             SimultaneousGesture(
                 DragGesture()
                     .onChanged { value in
+                        if activeTransformLayerID != nil { return }
                         if let idx = layers.firstIndex(where: { $0.id == layer.id }) {
                             // 第一次拖動時記錄 undo
                             if dragOffset == .zero {
@@ -926,6 +928,7 @@ struct WallpaperEditorView: View {
                     },
                 MagnificationGesture()
                     .onChanged { value in
+                        if activeTransformLayerID != nil { return }
                         guard let idx = layers.firstIndex(where: { $0.id == layer.id }) else { return }
                         if pinchLayerID != layer.id {
                             pushUndo()
@@ -949,6 +952,7 @@ struct WallpaperEditorView: View {
         .simultaneousGesture(
             RotationGesture()
                 .onChanged { angle in
+                    if activeTransformLayerID != nil { return }
                     guard layer.kind == .sticker,
                           let idx = layers.firstIndex(where: { $0.id == layer.id }) else { return }
                     if rotationLayerID != layer.id {
@@ -974,18 +978,19 @@ struct WallpaperEditorView: View {
     private func transformHandleOverlay(for layer: EditorLayer) -> some View {
         GeometryReader { geo in
             let size = geo.size
-            let handleInset: CGFloat = max(10, min(size.width, size.height) * 0.08)
-            let handleSize: CGFloat = max(28, min(size.width, size.height) * 0.16)
+            let handleInset: CGFloat = max(8, min(size.width, size.height) * 0.06)
+            let handleSize: CGFloat = max(20, min(size.width, size.height) * 0.12)
             let handleCenterX = size.width / 2
             let handleCenterY = size.height / 2
 
             ZStack {
                 if layer.kind != .background {
                     transformHandleButton(
-                        systemImage: "arrow.up.left.and.arrow.down.right",
+                        systemImage: nil,
                         tint: .blue,
                         center: CGPoint(x: size.width - handleInset, y: size.height - handleInset),
                         size: handleSize,
+                        layer: layer,
                         handle: .scale,
                         action: { value in
                             guard let idx = layers.firstIndex(where: { $0.id == layer.id }) else { return }
@@ -1020,6 +1025,7 @@ struct WallpaperEditorView: View {
                         tint: .orange,
                         center: CGPoint(x: size.width - handleInset, y: handleInset),
                         size: handleSize,
+                        layer: layer,
                         handle: .rotate,
                         action: { value in
                             guard layer.kind == .sticker,
@@ -1051,10 +1057,11 @@ struct WallpaperEditorView: View {
     }
 
     private func transformHandleButton(
-        systemImage: String,
+        systemImage: String?,
         tint: Color,
         center: CGPoint,
         size: CGFloat,
+        layer: EditorLayer,
         handle: TransformHandle,
         action: @escaping (DragGesture.Value) -> Void,
         onEnded: @escaping () -> Void
@@ -1062,11 +1069,17 @@ struct WallpaperEditorView: View {
         Circle()
             .fill(.white)
             .frame(width: size, height: size)
-            .overlay(
-                Image(systemName: systemImage)
-                    .font(.system(size: size * 0.42, weight: .bold))
-                    .foregroundStyle(tint)
-            )
+            .overlay {
+                if let icon = systemImage {
+                    Image(systemName: icon)
+                        .font(.system(size: size * 0.42, weight: .bold))
+                        .foregroundStyle(tint)
+                } else {
+                    Circle()
+                        .fill(tint)
+                        .frame(width: size * 0.46, height: size * 0.46)
+                }
+            }
             .overlay(
                 Circle().stroke(Color.black.opacity(0.15), lineWidth: 1)
             )
@@ -1074,7 +1087,7 @@ struct WallpaperEditorView: View {
             .position(center)
             .contentShape(Circle())
             .highPriorityGesture(
-                DragGesture(minimumDistance: 0, coordinateSpace: .local)
+                DragGesture(minimumDistance: 0, coordinateSpace: .named(layer.id))
                     .onChanged { value in
                         action(value)
                     }
