@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		3A68592B2FA83FD800139C8C /* vocpass.icon in Resources */ = {isa = PBXBuildFile; fileRef = 3A68592A2FA83FD800139C8C /* vocpass.icon */; };
+		3A68592C2FA83FD800139C8C /* vocpass.icon in Resources */ = {isa = PBXBuildFile; fileRef = 3A68592A2FA83FD800139C8C /* vocpass.icon */; };
+		3A68592D2FA83FD800139C8C /* vocpass.icon in Resources */ = {isa = PBXBuildFile; fileRef = 3A68592A2FA83FD800139C8C /* vocpass.icon */; };
 		3AD5036B2F7A90C50096F5BF /* VocPassWatch Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 3AD503612F7A90C20096F5BF /* VocPassWatch Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		3AD5037D2F7A91650096F5BF /* WatchConnectivity.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3AD5037C2F7A91650096F5BF /* WatchConnectivity.framework */; };
 		3AD5037F2F7A91730096F5BF /* WatchConnectivity.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3AD5037E2F7A91730096F5BF /* WatchConnectivity.framework */; };
@@ -62,6 +65,7 @@
 
 /* Begin PBXFileReference section */
 		0453CA39F6B03EEBE744835D /* ClassScheduleWidget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ClassScheduleWidget.swift; sourceTree = "<group>"; };
+		3A68592A2FA83FD800139C8C /* vocpass.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = vocpass.icon; sourceTree = "<group>"; };
 		3A9BC4AF2F04CAF600F3A879 /* VocPass.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VocPass.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		3AA8D3D82F6F0DFE008AEF36 /* VocPassWidget.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = VocPassWidget.entitlements; sourceTree = "<group>"; };
 		3AD503612F7A90C20096F5BF /* VocPassWatch Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "VocPassWatch Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -76,6 +80,20 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		3A6859322FA8400000139C8C /* Exceptions for "VocPass" folder in "VocPassWidget" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				vocpass.icon,
+			);
+			target = A977527F885884C09773FFEE /* VocPassWidget */;
+		};
+		3A6859332FA8400000139C8C /* Exceptions for "VocPass" folder in "VocPassWatch Watch App" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				vocpass.icon,
+			);
+			target = 3AD503602F7A90C20096F5BF /* VocPassWatch Watch App */;
+		};
 		3A916F302F613450008E4BD8 /* Exceptions for "VocPass" folder in "VocPass" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -90,6 +108,8 @@
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				3A916F302F613450008E4BD8 /* Exceptions for "VocPass" folder in "VocPass" target */,
+				3A6859322FA8400000139C8C /* Exceptions for "VocPass" folder in "VocPassWidget" target */,
+				3A6859332FA8400000139C8C /* Exceptions for "VocPass" folder in "VocPassWatch Watch App" target */,
 			);
 			path = VocPass;
 			sourceTree = "<group>";
@@ -161,6 +181,7 @@
 		439C65EA78508358252B98A6 /* VocPassWidget */ = {
 			isa = PBXGroup;
 			children = (
+				3A68592A2FA83FD800139C8C /* vocpass.icon */,
 				3AA8D3D82F6F0DFE008AEF36 /* VocPassWidget.entitlements */,
 				90BBCF3C30B0C3A1373513DD /* VocPassWidgetBundle.swift */,
 				0453CA39F6B03EEBE744835D /* ClassScheduleWidget.swift */,
@@ -291,6 +312,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				3A68592D2FA83FD800139C8C /* vocpass.icon in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -298,6 +320,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				3A68592B2FA83FD800139C8C /* vocpass.icon in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -305,6 +328,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				3A68592C2FA83FD800139C8C /* vocpass.icon in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
