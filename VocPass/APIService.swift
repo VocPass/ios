@@ -1209,10 +1209,8 @@ class APIService: ObservableObject {
         appendMultipartField(name: "title", value: title, to: &body, boundary: boundary)
         appendMultipartField(name: "content", value: content, to: &body, boundary: boundary)
         appendMultipartField(name: "anonymous", value: anonymous ? "true" : "false", to: &body, boundary: boundary)
-        if !tags.isEmpty,
-           let tagData = try? JSONSerialization.data(withJSONObject: tags),
-           let tagJSON = String(data: tagData, encoding: .utf8) {
-            appendMultipartField(name: "tag", value: tagJSON, to: &body, boundary: boundary)
+        if !tags.isEmpty {
+            appendMultipartField(name: "tag", value: tags.joined(separator: ","), to: &body, boundary: boundary)
         }
         for (index, image) in images.enumerated() {
             appendMultipartFile(
@@ -1268,6 +1266,28 @@ class APIService: ObservableObject {
     func setForumPostLike(postID: String, liked: Bool) async throws {
         let encodedPostID = postID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? postID
         guard let url = URL(string: "\(AppConfig.vocPassAPIHost)/api/forum/post/\(encodedPostID)/like") else {
+            throw URLError(.badURL)
+        }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = liked ? "POST" : "DELETE"
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        try VocPassAuthService.shared.applyAuth(to: &req)
+
+        let (data, response) = try await urlSession.data(for: req)
+        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200...299).contains(statusCode) else {
+            let payload = extractAPIErrorPayload(from: data)
+            if let msg = payload?.message?.trimmingCharacters(in: .whitespacesAndNewlines), !msg.isEmpty {
+                throw APIError.serverMessage(msg)
+            }
+            throw APIError.httpStatus(statusCode)
+        }
+    }
+
+    func setForumMessageLike(messageID: String, liked: Bool) async throws {
+        let encodedMessageID = messageID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? messageID
+        guard let url = URL(string: "\(AppConfig.vocPassAPIHost)/api/forum/message/\(encodedMessageID)/like") else {
             throw URLError(.badURL)
         }
 

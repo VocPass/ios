@@ -296,9 +296,24 @@ struct ForumMessage: Identifiable, Decodable {
     let anonymous: Bool
     let user: ForumUser?
     let created: String
+    let likes: [String]
 
     enum CodingKeys: String, CodingKey {
-        case id, content, description, body, message, anonymous, user, created
+        case id, content, description, body, message, anonymous, user, created, likes
+    }
+
+    init(id: String,
+         content: String,
+         anonymous: Bool,
+         user: ForumUser?,
+         created: String,
+         likes: [String]) {
+        self.id = id
+        self.content = content
+        self.anonymous = anonymous
+        self.user = user
+        self.created = created
+        self.likes = likes
     }
 
     init(from decoder: Decoder) throws {
@@ -312,6 +327,7 @@ struct ForumMessage: Identifiable, Decodable {
         anonymous = (try? c.decode(Bool.self, forKey: .anonymous)) ?? false
         user = try? c.decodeIfPresent(ForumUser.self, forKey: .user)
         created = (try? c.decodeLossyString(forKey: .created)) ?? ""
+        likes = (try? c.decode([String].self, forKey: .likes)) ?? []
     }
 }
 

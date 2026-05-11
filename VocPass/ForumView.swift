@@ -850,6 +850,8 @@ struct ForumPostDetailView: View {
                     ForEach(messages) { message in
                         ForumMessageRow(
                             message: message,
+                            likedByMe: messageLikedByMe(message),
+                            onLike: { Task { await toggleMessageLike(message) } },
                             onReport: { reportingContext = ReportContext(forumMessageID: message.id) }
                         )
                     }
@@ -953,6 +955,41 @@ struct ForumPostDetailView: View {
         }
     }
 
+    private func messageLikedByMe(_ message: ForumMessage) -> Bool {
+        guard let userID = vocPassAuth.currentUser?.id else { return false }
+        return message.likes.contains(userID)
+    }
+
+    @MainActor
+    private func toggleMessageLike(_ message: ForumMessage) async {
+        guard let userID = vocPassAuth.currentUser?.id else {
+            showLogin = true
+            return
+        }
+
+        let shouldLike = !message.likes.contains(userID)
+        var updatedLikes = message.likes
+        if shouldLike {
+            updatedLikes.append(userID)
+        } else {
+            updatedLikes.removeAll { $0 == userID }
+        }
+
+        let oldMessages = messages
+        messages = messages.map { current in
+            current.id == message.id
+                ? ForumMessageSnapshot.copy(from: current, likes: updatedLikes)
+                : current
+        }
+
+        do {
+            try await apiService.setForumMessageLike(messageID: message.id, liked: shouldLike)
+        } catch {
+            messages = oldMessages
+            actionError = error.localizedDescription
+        }
+    }
+
     @MainActor
     private func submitMessage() async {
         guard vocPassAuth.isLoggedIn else {
@@ -984,6 +1021,8 @@ struct ForumPostDetailView: View {
 private struct ForumMessageRow: View {
     @EnvironmentObject var apiService: APIService
     let message: ForumMessage
+    let likedByMe: Bool
+    let onLike: () -> Void
     let onReport: () -> Void
 
     var body: some View {
@@ -1025,6 +1064,24 @@ private struct ForumMessageRow: View {
                     .font(.subheadline)
                     .foregroundStyle(.primary)
                     .fixedSize(horizontal: false, vertical: true)
+
+                Button(action: onLike) {
+                    HStack(spacing: 5) {
+                        Image(systemName: likedByMe ? "heart.fill" : "heart")
+                            .font(.caption)
+                            .foregroundStyle(likedByMe ? Color.red : Color.secondary)
+                        Text("\(message.likes.count)")
+                            .font(.caption)
+                            .fontWeight(.medium)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 5)
+                    .background(likedByMe ? Color.red.opacity(0.12) : Color(.tertiarySystemGroupedBackground))
+                    .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 2)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -1049,14 +1106,9 @@ private struct ForumUserLink<Label: View>: View {
                 label()
             }
             .buttonStyle(.plain)
-            .background {
-                NavigationLink(isActive: $isShowingUserPosts) {
-                    ForumUserPostsView(user: user)
-                        .environmentObject(apiService)
-                } label: {
-                    EmptyView()
-                }
-                .hidden()
+            .navigationDestination(isPresented: $isShowingUserPosts) {
+                ForumUserPostsView(user: user)
+                    .environmentObject(apiService)
             }
         } else {
             label()
@@ -1400,6 +1452,19 @@ private enum ForumPostSnapshot {
             user: post.user,
             created: post.created,
             updated: post.updated
+        )
+    }
+}
+
+private enum ForumMessageSnapshot {
+    static func copy(from message: ForumMessage, likes: [String]) -> ForumMessage {
+        ForumMessage(
+            id: message.id,
+            content: message.content,
+            anonymous: message.anonymous,
+            user: message.user,
+            created: message.created,
+            likes: likes
         )
     }
 }
