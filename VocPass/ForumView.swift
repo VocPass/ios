@@ -214,6 +214,10 @@ private struct ForumPostRow: View {
                 .font(.headline)
                 .foregroundStyle(.primary)
 
+            if !post.tags.isEmpty {
+                ForumTagCloud(tags: post.tags)
+            }
+
             if !post.content.isEmpty {
                 Text(post.content)
                     .font(.subheadline)
@@ -281,6 +285,10 @@ struct ForumPostDetailView: View {
                     Text(post.title)
                         .font(.title3)
                         .fontWeight(.semibold)
+
+                    if !post.tags.isEmpty {
+                        ForumTagCloud(tags: post.tags)
+                    }
 
                     if !post.content.isEmpty {
                         Text(post.content)
@@ -455,13 +463,126 @@ private struct ForumAvatar: View {
                     }
                 }
             } else {
-                Image(systemName: anonymous ? "person.fill.questionmark" : "person.circle.fill")
+                Image(systemName: anonymous ? "person.crop.circle.fill" : "person.circle.fill")
                     .resizable()
-                    .foregroundStyle(anonymous ? Color.secondary : Color.blue)
+                    .foregroundStyle(anonymous ? Color(.systemGray2) : Color.blue)
             }
         }
         .frame(width: size, height: size)
         .clipShape(Circle())
+    }
+}
+
+private struct ForumTagCloud: View {
+    let tags: [ForumTag]
+
+    var body: some View {
+        FlowLayout(spacing: 6, lineSpacing: 6) {
+            ForEach(tags) { tag in
+                ForumTagBadge(tag: tag)
+            }
+        }
+    }
+}
+
+private struct ForumTagBadge: View {
+    let tag: ForumTag
+
+    private var color: Color {
+        Color(hex: tag.colorHex) ?? .secondary
+    }
+
+    var body: some View {
+        Text(tag.name)
+            .font(.caption2)
+            .fontWeight(.semibold)
+            .foregroundStyle(readableTextColor)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(color)
+            .clipShape(Capsule())
+            .overlay {
+                Capsule()
+                    .stroke(Color(.separator).opacity(0.18), lineWidth: 1)
+            }
+    }
+
+    private var readableTextColor: Color {
+        guard let components = color.rgbComponents else {
+            return .primary
+        }
+        let luminance = (0.299 * components.red) + (0.587 * components.green) + (0.114 * components.blue)
+        return luminance > 0.62 ? .black : .white
+    }
+}
+
+private struct FlowLayout: Layout {
+    var spacing: CGFloat = 8
+    var lineSpacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let rows = rows(proposal: proposal, subviews: subviews)
+        return CGSize(
+            width: proposal.width ?? rows.map(\.width).max() ?? 0,
+            height: rows.map(\.height).reduce(0, +) + CGFloat(max(rows.count - 1, 0)) * lineSpacing
+        )
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var y = bounds.minY
+        for row in rows(proposal: ProposedViewSize(width: bounds.width, height: proposal.height), subviews: subviews) {
+            var x = bounds.minX
+            for item in row.items {
+                item.subview.place(
+                    at: CGPoint(x: x, y: y),
+                    anchor: .topLeading,
+                    proposal: ProposedViewSize(item.size)
+                )
+                x += item.size.width + spacing
+            }
+            y += row.height + lineSpacing
+        }
+    }
+
+    private func rows(proposal: ProposedViewSize, subviews: Subviews) -> [Row] {
+        let maxWidth = proposal.width ?? .infinity
+        var rows: [Row] = []
+        var current = Row()
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if current.width + size.width + (current.items.isEmpty ? 0 : spacing) > maxWidth,
+               !current.items.isEmpty {
+                rows.append(current)
+                current = Row()
+            }
+            current.add(subview: subview, size: size, spacing: spacing)
+        }
+
+        if !current.items.isEmpty {
+            rows.append(current)
+        }
+        return rows
+    }
+
+    private struct Row {
+        var items: [Item] = []
+        var width: CGFloat = 0
+        var height: CGFloat = 0
+
+        mutating func add(subview: LayoutSubview, size: CGSize, spacing: CGFloat) {
+            if !items.isEmpty {
+                width += spacing
+            }
+            items.append(Item(subview: subview, size: size))
+            width += size.width
+            height = max(height, size.height)
+        }
+    }
+
+    private struct Item {
+        let subview: LayoutSubview
+        let size: CGSize
     }
 }
 
@@ -499,6 +620,38 @@ private enum ForumDateFormatter {
     }
 }
 
+private extension Color {
+    init?(hex: String?) {
+        guard let hex else { return nil }
+        var cleaned = hex.trimmingCharacters(in: .whitespacesAndNewlines)
+        if cleaned.hasPrefix("#") {
+            cleaned.removeFirst()
+        }
+
+        guard cleaned.count == 6,
+              let value = Int(cleaned, radix: 16) else {
+            return nil
+        }
+
+        let red = Double((value >> 16) & 0xFF) / 255
+        let green = Double((value >> 8) & 0xFF) / 255
+        let blue = Double(value & 0xFF) / 255
+        self = Color(red: red, green: green, blue: blue)
+    }
+
+    var rgbComponents: (red: Double, green: Double, blue: Double)? {
+        let uiColor = UIColor(self)
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+        guard uiColor.getRed(&red, green: &green, blue: &blue, alpha: &alpha) else {
+            return nil
+        }
+        return (Double(red), Double(green), Double(blue))
+    }
+}
+
 private enum ForumPostSnapshot {
     static func copy(from post: ForumPost, likes: [String]) -> ForumPost {
         ForumPost(
@@ -508,6 +661,7 @@ private enum ForumPostSnapshot {
             title: post.title,
             content: post.content,
             anonymous: post.anonymous,
+            tags: post.tags,
             likes: likes,
             user: post.user,
             created: post.created,

@@ -149,6 +149,10 @@ struct ForumMessageListData: Decodable {
     }
 }
 
+struct ForumTagStyle: Decodable {
+    let color: String?
+}
+
 struct ForumPost: Identifiable, Decodable {
     let id: String
     let post: String?
@@ -156,6 +160,7 @@ struct ForumPost: Identifiable, Decodable {
     let title: String
     let content: String
     let anonymous: Bool
+    let tags: [ForumTag]
     let likes: [String]
     let user: ForumUser?
     let created: String
@@ -165,7 +170,7 @@ struct ForumPost: Identifiable, Decodable {
 
     enum CodingKeys: String, CodingKey {
         case id, post, school, title, content, description, body, message
-        case anonymous, likes, user, created, updated
+        case anonymous, tag, tags, likes, user, created, updated
     }
 
     init(id: String,
@@ -174,6 +179,7 @@ struct ForumPost: Identifiable, Decodable {
          title: String,
          content: String,
          anonymous: Bool,
+         tags: [ForumTag],
          likes: [String],
          user: ForumUser?,
          created: String,
@@ -184,6 +190,7 @@ struct ForumPost: Identifiable, Decodable {
         self.title = title
         self.content = content
         self.anonymous = anonymous
+        self.tags = tags
         self.likes = likes
         self.user = user
         self.created = created
@@ -202,11 +209,22 @@ struct ForumPost: Identifiable, Decodable {
             ?? (try? c.decodeLossyString(forKey: .message))
             ?? ""
         anonymous = (try? c.decode(Bool.self, forKey: .anonymous)) ?? false
+        let tagMap = (try? c.decode([String: ForumTagStyle].self, forKey: .tag))
+            ?? (try? c.decode([String: ForumTagStyle].self, forKey: .tags))
+            ?? [:]
+        tags = tagMap.map { ForumTag(name: $0.key, colorHex: $0.value.color) }
+            .sorted { $0.name < $1.name }
         likes = (try? c.decode([String].self, forKey: .likes)) ?? []
         user = try? c.decodeIfPresent(ForumUser.self, forKey: .user)
         created = (try? c.decodeLossyString(forKey: .created)) ?? ""
         updated = (try? c.decodeLossyString(forKey: .updated)) ?? ""
     }
+}
+
+struct ForumTag: Identifiable {
+    var id: String { name }
+    let name: String
+    let colorHex: String?
 }
 
 struct ForumMessage: Identifiable, Decodable {
