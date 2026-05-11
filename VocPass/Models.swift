@@ -113,6 +113,127 @@ struct NoticeItem: Identifiable, Decodable {
     }
 }
 
+// MARK: - 論壇
+struct ForumUser: Decodable {
+    let name: String
+    let username: String
+    let avatar: String?
+
+    var displayName: String {
+        name.isEmpty ? username : name
+    }
+
+    var avatarURL: URL? {
+        guard let avatar, !avatar.isEmpty else { return nil }
+        return URL(string: avatar)
+    }
+}
+
+struct ForumPostListData: Decodable {
+    let forums: [ForumPost]
+    let totalPages: Int
+
+    enum CodingKeys: String, CodingKey {
+        case forums
+        case totalPages = "total_pages"
+    }
+}
+
+struct ForumMessageListData: Decodable {
+    let forums: [ForumMessage]
+    let totalPages: Int
+
+    enum CodingKeys: String, CodingKey {
+        case forums
+        case totalPages = "total_pages"
+    }
+}
+
+struct ForumPost: Identifiable, Decodable {
+    let id: String
+    let post: String?
+    let school: String
+    let title: String
+    let content: String
+    let anonymous: Bool
+    let likes: [String]
+    let user: ForumUser?
+    let created: String
+    let updated: String
+
+    var likeTargetID: String { post ?? id }
+
+    enum CodingKeys: String, CodingKey {
+        case id, post, school, title, content, description, body, message
+        case anonymous, likes, user, created, updated
+    }
+
+    init(id: String,
+         post: String?,
+         school: String,
+         title: String,
+         content: String,
+         anonymous: Bool,
+         likes: [String],
+         user: ForumUser?,
+         created: String,
+         updated: String) {
+        self.id = id
+        self.post = post
+        self.school = school
+        self.title = title
+        self.content = content
+        self.anonymous = anonymous
+        self.likes = likes
+        self.user = user
+        self.created = created
+        self.updated = updated
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = (try? c.decodeLossyString(forKey: .id)) ?? UUID().uuidString
+        post = try? c.decodeLossyStringIfPresent(forKey: .post)
+        school = (try? c.decodeLossyString(forKey: .school)) ?? ""
+        title = (try? c.decodeLossyString(forKey: .title)) ?? "未命名文章"
+        content = (try? c.decodeLossyString(forKey: .content))
+            ?? (try? c.decodeLossyString(forKey: .description))
+            ?? (try? c.decodeLossyString(forKey: .body))
+            ?? (try? c.decodeLossyString(forKey: .message))
+            ?? ""
+        anonymous = (try? c.decode(Bool.self, forKey: .anonymous)) ?? false
+        likes = (try? c.decode([String].self, forKey: .likes)) ?? []
+        user = try? c.decodeIfPresent(ForumUser.self, forKey: .user)
+        created = (try? c.decodeLossyString(forKey: .created)) ?? ""
+        updated = (try? c.decodeLossyString(forKey: .updated)) ?? ""
+    }
+}
+
+struct ForumMessage: Identifiable, Decodable {
+    let id: String
+    let content: String
+    let anonymous: Bool
+    let user: ForumUser?
+    let created: String
+
+    enum CodingKeys: String, CodingKey {
+        case id, content, description, body, message, anonymous, user, created
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = (try? c.decodeLossyString(forKey: .id)) ?? UUID().uuidString
+        content = (try? c.decodeLossyString(forKey: .content))
+            ?? (try? c.decodeLossyString(forKey: .description))
+            ?? (try? c.decodeLossyString(forKey: .body))
+            ?? (try? c.decodeLossyString(forKey: .message))
+            ?? ""
+        anonymous = (try? c.decode(Bool.self, forKey: .anonymous)) ?? false
+        user = try? c.decodeIfPresent(ForumUser.self, forKey: .user)
+        created = (try? c.decodeLossyString(forKey: .created)) ?? ""
+    }
+}
+
 // MARK: - 獎懲記錄
 struct MeritDemeritRecord: Identifiable, Codable {
     let id = UUID()

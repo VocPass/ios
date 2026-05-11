@@ -28,11 +28,17 @@ struct MainTabView: View {
                 }
                 .tag(1)
 
+            ForumView()
+                .tabItem {
+                    Label("論壇", systemImage: "bubble.left.and.bubble.right.fill")
+                }
+                .tag(2)
+
             SettingsView()
                 .tabItem {
                     Label("設定", systemImage: "gearshape.fill")
                 }
-                .tag(2)
+                .tag(3)
         }
     }
 }

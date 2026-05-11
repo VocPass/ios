@@ -1046,6 +1046,85 @@ class APIService: ObservableObject {
         let result = try JSONDecoder().decode(RestaurantListResponse.self, from: data)
         return result.items
     }
+
+    // MARK: - 論壇
+    func fetchForumPosts(school: String, page: Int = 1) async throws -> ForumPostListData {
+        let encodedSchool = school.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? school
+        guard var components = URLComponents(string: "\(AppConfig.vocPassAPIHost)/api/forum/\(encodedSchool)") else {
+            throw URLError(.badURL)
+        }
+        components.queryItems = [URLQueryItem(name: "page", value: "\(page)")]
+        guard let url = components.url else { throw URLError(.badURL) }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "GET"
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        if VocPassAuthService.shared.isLoggedIn {
+            try? VocPassAuthService.shared.applyAuth(to: &req)
+        }
+
+        let (data, response) = try await urlSession.data(for: req)
+        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard statusCode == 200 else {
+            let payload = extractAPIErrorPayload(from: data)
+            if let msg = payload?.message?.trimmingCharacters(in: .whitespacesAndNewlines), !msg.isEmpty {
+                throw APIError.serverMessage(msg)
+            }
+            throw APIError.httpStatus(statusCode)
+        }
+
+        return try JSONDecoder().decode(APIResponse<ForumPostListData>.self, from: data).data
+    }
+
+    func fetchForumMessages(postID: String, page: Int = 1) async throws -> ForumMessageListData {
+        let encodedPostID = postID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? postID
+        guard var components = URLComponents(string: "\(AppConfig.vocPassAPIHost)/api/forum/post/\(encodedPostID)/message") else {
+            throw URLError(.badURL)
+        }
+        components.queryItems = [URLQueryItem(name: "page", value: "\(page)")]
+        guard let url = components.url else { throw URLError(.badURL) }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "GET"
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        if VocPassAuthService.shared.isLoggedIn {
+            try? VocPassAuthService.shared.applyAuth(to: &req)
+        }
+
+        let (data, response) = try await urlSession.data(for: req)
+        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard statusCode == 200 else {
+            let payload = extractAPIErrorPayload(from: data)
+            if let msg = payload?.message?.trimmingCharacters(in: .whitespacesAndNewlines), !msg.isEmpty {
+                throw APIError.serverMessage(msg)
+            }
+            throw APIError.httpStatus(statusCode)
+        }
+
+        return try JSONDecoder().decode(APIResponse<ForumMessageListData>.self, from: data).data
+    }
+
+    func setForumPostLike(postID: String, liked: Bool) async throws {
+        let encodedPostID = postID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? postID
+        guard let url = URL(string: "\(AppConfig.vocPassAPIHost)/api/forum/post/\(encodedPostID)/like") else {
+            throw URLError(.badURL)
+        }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = liked ? "POST" : "DELETE"
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        try VocPassAuthService.shared.applyAuth(to: &req)
+
+        let (data, response) = try await urlSession.data(for: req)
+        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200...299).contains(statusCode) else {
+            let payload = extractAPIErrorPayload(from: data)
+            if let msg = payload?.message?.trimmingCharacters(in: .whitespacesAndNewlines), !msg.isEmpty {
+                throw APIError.serverMessage(msg)
+            }
+            throw APIError.httpStatus(statusCode)
+        }
+    }
 }
 
 // MARK: - 錯誤類型
