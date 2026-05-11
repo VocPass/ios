@@ -379,6 +379,8 @@ private struct ForumCreatePostSheet: View {
     @State private var isSubmitting = false
     @State private var errorMessage: String?
 
+    private let maxImageBytes = 5 * 1024 * 1024
+
     private var canSubmit: Bool {
         !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
         !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
@@ -417,6 +419,9 @@ private struct ForumCreatePostSheet: View {
                     PhotosPicker(selection: $selectedPhotoItems, maxSelectionCount: 5, matching: .images) {
                         Label("選擇圖片", systemImage: "photo.on.rectangle.angled")
                     }
+                    Text("最多 5 張，每張會自動壓縮到 5 MB 以下")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
 
                     if !selectedImages.isEmpty {
                         ScrollView(.horizontal, showsIndicators: false) {
@@ -518,14 +523,22 @@ private struct ForumCreatePostSheet: View {
     @MainActor
     private func loadSelectedImages(from items: [PhotosPickerItem]) async {
         var loaded: [ForumSelectedImage] = []
+        var failedCount = 0
         for item in items.prefix(5) {
             guard let data = try? await item.loadTransferable(type: Data.self),
                   let image = UIImage(data: data) else {
                 continue
             }
-            loaded.append(ForumSelectedImage(data: data, mimeType: ForumSelectedImage.mimeType(for: data), image: image))
+            if let selectedImage = ForumSelectedImage.makeCompressed(from: image, originalData: data, maxBytes: maxImageBytes) {
+                loaded.append(selectedImage)
+            } else {
+                failedCount += 1
+            }
         }
         selectedImages = loaded
+        if failedCount > 0 {
+            errorMessage = "\(failedCount) 張圖片無法壓縮到 5 MB 以下，請換較小的圖片"
+        }
     }
 }
 
@@ -537,6 +550,46 @@ private struct ForumSelectedImage: Identifiable {
 
     static func mimeType(for data: Data) -> String {
         data.starts(with: [0x89, 0x50, 0x4E, 0x47]) ? "image/png" : "image/jpeg"
+    }
+
+    static func makeCompressed(from image: UIImage, originalData: Data, maxBytes: Int) -> ForumSelectedImage? {
+        if originalData.count <= maxBytes {
+            return ForumSelectedImage(data: originalData, mimeType: mimeType(for: originalData), image: image)
+        }
+
+        var workingImage = image.resizedToFit(maxDimension: 2048)
+        let dimensionScales: [CGFloat] = [1, 0.85, 0.7, 0.55, 0.4]
+        let qualities: [CGFloat] = [0.85, 0.75, 0.65, 0.55, 0.45, 0.35, 0.25]
+
+        for scale in dimensionScales {
+            if scale < 1 {
+                workingImage = image.resizedToFit(maxDimension: 2048 * scale)
+            }
+            for quality in qualities {
+                guard let data = workingImage.jpegData(compressionQuality: quality) else { continue }
+                if data.count <= maxBytes {
+                    return ForumSelectedImage(data: data, mimeType: "image/jpeg", image: workingImage)
+                }
+            }
+        }
+
+        return nil
+    }
+}
+
+private extension UIImage {
+    func resizedToFit(maxDimension: CGFloat) -> UIImage {
+        let longestSide = max(size.width, size.height)
+        guard longestSide > maxDimension, longestSide > 0 else { return self }
+
+        let scale = maxDimension / longestSide
+        let targetSize = CGSize(width: size.width * scale, height: size.height * scale)
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        format.opaque = false
+        return UIGraphicsImageRenderer(size: targetSize, format: format).image { _ in
+            draw(in: CGRect(origin: .zero, size: targetSize))
+        }
     }
 }
 
