@@ -146,6 +146,11 @@ class VocPassAuthService: ObservableObject {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
     }
 
+    func applyAuthIfAvailable(to request: inout URLRequest) {
+        guard let token = authToken, !token.isEmpty else { return }
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    }
+
     // MARK: - 更新使用者資料
 
     func updateUser(name: String?, username: String?, avatarData: Data?) async throws {

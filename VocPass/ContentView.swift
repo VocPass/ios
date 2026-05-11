@@ -61,7 +61,7 @@ struct ContentView: View {
                 // Ping 在背景執行，不阻擋 UI
                 if hasSeenOnboarding && hasSelectedSchool {
                     if schoolConfigManager.selectedSchool?.isGuest != true {
-                        await apiService.pingAndRestoreSession()
+                        _ = await apiService.pingAndRestoreSession()
                     }
                     CacheService.shared.syncTimetableToWidget()
                 }
@@ -157,6 +157,9 @@ struct LoginView: View {
                     CacheService.shared.saveCookies(cookies)
                     apiService.cookies = cookies
                     apiService.isLoggedIn = true
+                    Task {
+                        _ = await apiService.pingAndRestoreSession()
+                    }
                 }
             }
             .onChange(of: cookies) { _, newValue in

@@ -675,6 +675,7 @@ class APIService: ObservableObject {
         req.httpMethod = "GET"
         req.setValue(cookieString, forHTTPHeaderField: "Cookie")
         req.setValue("application/json", forHTTPHeaderField: "Accept")
+        VocPassAuthService.shared.applyAuthIfAvailable(to: &req)
 
         do {
             let (_, response) = try await urlSession.data(for: req)
