@@ -784,6 +784,7 @@ private struct ForumSchoolIcon: View {
 
 struct ForumPostDetailView: View {
     @EnvironmentObject var apiService: APIService
+    @Environment(\.dismiss) private var dismiss
     @ObservedObject private var vocPassAuth = VocPassAuthService.shared
 
     @State private var post: ForumPost
@@ -797,6 +798,8 @@ struct ForumPostDetailView: View {
     @State private var newMessage = ""
     @State private var newMessageAnonymous = false
     @State private var isSubmittingMessage = false
+    @State private var showDeletePostConfirmation = false
+    @State private var deletingMessage: ForumMessage?
 
     init(post: ForumPost) {
         _post = State(initialValue: post)
@@ -905,6 +908,7 @@ struct ForumPostDetailView: View {
                             message: message,
                             likedByMe: messageLikedByMe(message),
                             onLike: { Task { await toggleMessageLike(message) } },
+                            onDelete: { deletingMessage = message },
                             onReport: { reportingContext = ReportContext(forumMessageID: message.id) }
                         )
                     }
@@ -922,6 +926,12 @@ struct ForumPostDetailView: View {
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Menu {
+                    Button(role: .destructive) {
+                        showDeletePostConfirmation = true
+                    } label: {
+                        Label("刪除文章", systemImage: "trash")
+                    }
+
                     Button(role: .destructive) {
                         reportingContext = ReportContext(forumPostID: post.likeTargetID)
                     } label: {
@@ -952,6 +962,30 @@ struct ForumPostDetailView: View {
         .sheet(item: $reportingContext) { context in
             ReportSheet(context: context)
                 .environmentObject(apiService)
+        }
+        .confirmationDialog("確定刪除這篇文章？", isPresented: $showDeletePostConfirmation, titleVisibility: .visible) {
+            Button("刪除文章", role: .destructive) {
+                Task { await deletePost() }
+            }
+            Button("取消", role: .cancel) {}
+        }
+        .confirmationDialog(
+            "確定刪除這則留言？",
+            isPresented: Binding(
+                get: { deletingMessage != nil },
+                set: { if !$0 { deletingMessage = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("刪除留言", role: .destructive) {
+                if let message = deletingMessage {
+                    deletingMessage = nil
+                    Task { await deleteMessage(message) }
+                }
+            }
+            Button("取消", role: .cancel) {
+                deletingMessage = nil
+            }
         }
     }
 
@@ -1011,6 +1045,39 @@ struct ForumPostDetailView: View {
     private func messageLikedByMe(_ message: ForumMessage) -> Bool {
         guard let userID = vocPassAuth.currentUser?.id else { return false }
         return message.likes.contains(userID)
+    }
+
+    @MainActor
+    private func deletePost() async {
+        guard vocPassAuth.isLoggedIn else {
+            showLogin = true
+            return
+        }
+
+        do {
+            try await apiService.deleteForumPost(postID: post.likeTargetID)
+            dismiss()
+        } catch {
+            actionError = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func deleteMessage(_ message: ForumMessage) async {
+        guard vocPassAuth.isLoggedIn else {
+            showLogin = true
+            return
+        }
+
+        let oldMessages = messages
+        messages.removeAll { $0.id == message.id }
+
+        do {
+            try await apiService.deleteForumMessage(messageID: message.id)
+        } catch {
+            messages = oldMessages
+            actionError = error.localizedDescription
+        }
     }
 
     @MainActor
@@ -1076,6 +1143,7 @@ private struct ForumMessageRow: View {
     let message: ForumMessage
     let likedByMe: Bool
     let onLike: () -> Void
+    let onDelete: () -> Void
     let onReport: () -> Void
 
     var body: some View {
@@ -1102,6 +1170,10 @@ private struct ForumMessageRow: View {
                     Spacer(minLength: 8)
 
                     Menu {
+                        Button(role: .destructive, action: onDelete) {
+                            Label("刪除留言", systemImage: "trash")
+                        }
+
                         Button(role: .destructive, action: onReport) {
                             Label("檢舉留言", systemImage: "flag")
                         }

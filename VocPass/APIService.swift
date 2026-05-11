@@ -1263,6 +1263,50 @@ class APIService: ObservableObject {
         }
     }
 
+    func deleteForumPost(postID: String) async throws {
+        let encodedPostID = postID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? postID
+        guard let url = URL(string: "\(AppConfig.vocPassAPIHost)/api/forum/post/\(encodedPostID)") else {
+            throw URLError(.badURL)
+        }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "DELETE"
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        try VocPassAuthService.shared.applyAuth(to: &req)
+
+        let (data, response) = try await urlSession.data(for: req)
+        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200...299).contains(statusCode) else {
+            let payload = extractAPIErrorPayload(from: data)
+            if let msg = payload?.message?.trimmingCharacters(in: .whitespacesAndNewlines), !msg.isEmpty {
+                throw APIError.serverMessage(msg)
+            }
+            throw APIError.httpStatus(statusCode)
+        }
+    }
+
+    func deleteForumMessage(messageID: String) async throws {
+        let encodedMessageID = messageID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? messageID
+        guard let url = URL(string: "\(AppConfig.vocPassAPIHost)/api/forum/message/\(encodedMessageID)") else {
+            throw URLError(.badURL)
+        }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "DELETE"
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        try VocPassAuthService.shared.applyAuth(to: &req)
+
+        let (data, response) = try await urlSession.data(for: req)
+        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200...299).contains(statusCode) else {
+            let payload = extractAPIErrorPayload(from: data)
+            if let msg = payload?.message?.trimmingCharacters(in: .whitespacesAndNewlines), !msg.isEmpty {
+                throw APIError.serverMessage(msg)
+            }
+            throw APIError.httpStatus(statusCode)
+        }
+    }
+
     func setForumPostLike(postID: String, liked: Bool) async throws {
         let encodedPostID = postID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? postID
         guard let url = URL(string: "\(AppConfig.vocPassAPIHost)/api/forum/post/\(encodedPostID)/like") else {
