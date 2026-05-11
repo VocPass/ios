@@ -65,31 +65,33 @@ struct ForumView: View {
                 } else if posts.isEmpty {
                     ContentUnavailableView("目前沒有文章", systemImage: "bubble.left.and.text.bubble.right")
                 } else {
-                    List {
-                        ForEach(posts) { post in
-                            NavigationLink {
-                                ForumPostDetailView(post: post)
-                                    .environmentObject(apiService)
-                            } label: {
-                                ForumPostRow(post: post)
+                    ScrollView {
+                        LazyVStack(spacing: 12) {
+                            ForEach(posts) { post in
+                                NavigationLink {
+                                    ForumPostDetailView(post: post)
+                                        .environmentObject(apiService)
+                                } label: {
+                                    ForumPostRow(post: post)
+                                }
+                                .buttonStyle(.plain)
+                                .task {
+                                    await loadMoreIfNeeded(currentPost: post)
+                                }
                             }
-                            .task {
-                                await loadMoreIfNeeded(currentPost: post)
-                            }
-                        }
 
-                        if isLoadingMore {
-                            HStack {
-                                Spacer()
+                            if isLoadingMore {
                                 ProgressView()
-                                Spacer()
+                                    .padding(.vertical, 12)
                             }
                         }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
                     }
-                    .listStyle(.plain)
                     .refreshable {
                         await load(reset: true)
                     }
+                    .background(Color(.systemGroupedBackground))
                 }
             }
             .navigationTitle("論壇")
@@ -219,11 +221,23 @@ private struct ForumPostRow: View {
                     .lineLimit(3)
             }
 
-            Label("\(post.likes.count)", systemImage: "heart")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            HStack(spacing: 6) {
+                Image(systemName: "heart.fill")
+                    .font(.caption)
+                    .foregroundStyle(.red.opacity(0.8))
+                Text("\(post.likes.count)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
-        .padding(.vertical, 6)
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color(.separator).opacity(0.18), lineWidth: 1)
+        }
     }
 }
 
@@ -277,10 +291,21 @@ struct ForumPostDetailView: View {
                     Button {
                         Task { await toggleLike() }
                     } label: {
-                        Label("\(post.likes.count)", systemImage: likedByMe ? "heart.fill" : "heart")
+                        HStack(spacing: 8) {
+                            Image(systemName: likedByMe ? "heart.fill" : "heart")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(likedByMe ? Color.red : Color.secondary)
+                            Text("\(post.likes.count)")
+                                .font(.subheadline)
+                                .fontWeight(.medium)
+                                .foregroundStyle(.primary)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(likedByMe ? Color.red.opacity(0.12) : Color(.tertiarySystemGroupedBackground))
+                        .clipShape(Capsule())
                     }
-                    .buttonStyle(.bordered)
-                    .tint(likedByMe ? .red : .secondary)
+                    .buttonStyle(.plain)
                 }
                 .padding(.vertical, 6)
             }
