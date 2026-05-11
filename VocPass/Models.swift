@@ -115,9 +115,29 @@ struct NoticeItem: Identifiable, Decodable {
 
 // MARK: - 論壇
 struct ForumUser: Decodable {
+    let id: String
     let name: String
     let username: String
     let avatar: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, username, avatar
+    }
+
+    init(id: String, name: String, username: String, avatar: String?) {
+        self.id = id
+        self.name = name
+        self.username = username
+        self.avatar = avatar
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = (try? c.decodeLossyString(forKey: .name)) ?? ""
+        username = (try? c.decodeLossyString(forKey: .username)) ?? ""
+        id = (try? c.decodeLossyString(forKey: .id)) ?? username
+        avatar = try? c.decodeLossyStringIfPresent(forKey: .avatar)
+    }
 
     var displayName: String {
         name.isEmpty ? username : name
@@ -149,6 +169,30 @@ struct ForumMessageListData: Decodable {
     }
 }
 
+struct ForumAdminInfo: Decodable {
+    let id: String
+    let school: String
+    let icon: String?
+    let admin: [String]
+
+    var iconURL: URL? {
+        guard let icon, !icon.isEmpty else { return nil }
+        return URL(string: icon)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, school, icon, admin
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = (try? c.decodeLossyString(forKey: .id)) ?? UUID().uuidString
+        school = (try? c.decodeLossyString(forKey: .school)) ?? ""
+        icon = try? c.decodeLossyStringIfPresent(forKey: .icon)
+        admin = (try? c.decode([String].self, forKey: .admin)) ?? []
+    }
+}
+
 struct ForumTagStyle: Decodable {
     let color: String?
 }
@@ -160,6 +204,7 @@ struct ForumPost: Identifiable, Decodable {
     let title: String
     let content: String
     let anonymous: Bool
+    let pin: Bool
     let tags: [ForumTag]
     let likes: [String]
     let user: ForumUser?
@@ -170,7 +215,7 @@ struct ForumPost: Identifiable, Decodable {
 
     enum CodingKeys: String, CodingKey {
         case id, post, school, title, content, description, body, message
-        case anonymous, tag, tags, likes, user, created, updated
+        case anonymous, pin, tag, tags, likes, user, created, updated
     }
 
     init(id: String,
@@ -179,6 +224,7 @@ struct ForumPost: Identifiable, Decodable {
          title: String,
          content: String,
          anonymous: Bool,
+         pin: Bool,
          tags: [ForumTag],
          likes: [String],
          user: ForumUser?,
@@ -190,6 +236,7 @@ struct ForumPost: Identifiable, Decodable {
         self.title = title
         self.content = content
         self.anonymous = anonymous
+        self.pin = pin
         self.tags = tags
         self.likes = likes
         self.user = user
@@ -209,6 +256,7 @@ struct ForumPost: Identifiable, Decodable {
             ?? (try? c.decodeLossyString(forKey: .message))
             ?? ""
         anonymous = (try? c.decode(Bool.self, forKey: .anonymous)) ?? false
+        pin = (try? c.decode(Bool.self, forKey: .pin)) ?? false
         let tagMap = (try? c.decode([String: ForumTagStyle].self, forKey: .tag))
             ?? (try? c.decode([String: ForumTagStyle].self, forKey: .tags))
             ?? [:]

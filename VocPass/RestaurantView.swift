@@ -323,6 +323,8 @@ struct ReportContext: Identifiable {
     var restaurantID: String?
     var restaurantEvaluateID: String?
     var restaurantMenuID: String?
+    var forumPostID: String?
+    var forumMessageID: String?
 }
 
 // MARK: - 餐廳列表 Row
@@ -1731,6 +1733,8 @@ struct ReportSheet: View {
                 restaurantID: context.restaurantID,
                 restaurantEvaluateID: context.restaurantEvaluateID,
                 restaurantMenuID: context.restaurantMenuID,
+                forumPostID: context.forumPostID,
+                forumMessageID: context.forumMessageID,
                 reason: reason,
                 description: description.isEmpty ? nil : description
             )

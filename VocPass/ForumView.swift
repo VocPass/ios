@@ -31,6 +31,9 @@ struct ForumView: View {
     @State private var isLoadingMore = false
     @State private var errorMessage: String?
     @State private var showLogin = false
+    @State private var reportingContext: ReportContext?
+    @State private var adminInfo: ForumAdminInfo?
+    @State private var isLoadingAdminInfo = false
 
     private var selectedSchoolName: String? {
         schoolConfigManager.selectedSchool?.name
@@ -47,70 +50,83 @@ struct ForumView: View {
 
     var body: some View {
         NavigationStack {
-            Group {
-                if isLoading && posts.isEmpty {
-                    ProgressView("載入中...")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if let errorMessage, posts.isEmpty {
-                    ContentUnavailableView {
-                        Label("載入失敗", systemImage: "exclamationmark.bubble")
-                    } description: {
-                        Text(errorMessage)
-                    } actions: {
-                        Button("重試") {
-                            Task { await load(reset: true) }
-                        }
-                        .buttonStyle(.borderedProminent)
-                    }
-                } else if posts.isEmpty {
-                    ContentUnavailableView("目前沒有文章", systemImage: "bubble.left.and.text.bubble.right")
-                } else {
-                    ScrollView {
-                        LazyVStack(spacing: 12) {
-                            ForEach(posts) { post in
-                                NavigationLink {
-                                    ForumPostDetailView(post: post)
-                                        .environmentObject(apiService)
-                                } label: {
-                                    ForumPostRow(post: post)
-                                }
-                                .buttonStyle(.plain)
-                                .task {
-                                    await loadMoreIfNeeded(currentPost: post)
-                                }
-                            }
-
-                            if isLoadingMore {
-                                ProgressView()
-                                    .padding(.vertical, 12)
-                            }
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
-                    }
-                    .refreshable {
-                        await load(reset: true)
-                    }
+            VStack(spacing: 0) {
+                scopePicker
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
                     .background(Color(.systemGroupedBackground))
+
+                Group {
+                    if isLoading && posts.isEmpty {
+                        ProgressView("載入中...")
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else if let errorMessage, posts.isEmpty {
+                        ContentUnavailableView {
+                            Label("載入失敗", systemImage: "exclamationmark.bubble")
+                        } description: {
+                            Text(errorMessage)
+                        } actions: {
+                            Button("重試") {
+                                Task { await load(reset: true) }
+                            }
+                            .buttonStyle(.borderedProminent)
+                        }
+                    } else {
+                        ScrollView {
+                            LazyVStack(spacing: 12) {
+                                if selectedScope == .currentSchool, let selectedSchoolName {
+                                    ForumSchoolAdminHeader(
+                                        schoolName: selectedSchoolName,
+                                        adminInfo: adminInfo,
+                                        isLoading: isLoadingAdminInfo,
+                                        applyURL: moderatorApplyURL(for: selectedSchoolName)
+                                    )
+                                }
+
+                                if posts.isEmpty {
+                                    ContentUnavailableView("目前沒有文章", systemImage: "bubble.left.and.text.bubble.right")
+                                        .padding(.vertical, 48)
+                                } else {
+                                    ForEach(posts) { post in
+                                        ForumPostRow(
+                                            post: post,
+                                            showPinned: selectedScope == .currentSchool,
+                                            onReport: { reportingContext = ReportContext(forumPostID: post.likeTargetID) }
+                                        )
+                                        .environmentObject(apiService)
+                                        .task {
+                                            await loadMoreIfNeeded(currentPost: post)
+                                        }
+                                    }
+
+                                    if isLoadingMore {
+                                        ProgressView()
+                                            .padding(.vertical, 12)
+                                    }
+                                }
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                        }
+                        .refreshable {
+                            await load(reset: true)
+                        }
+                        .background(Color(.systemGroupedBackground))
+                    }
                 }
             }
             .navigationTitle("論壇")
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Picker("範圍", selection: $selectedScope) {
-                        ForEach(ForumScope.allCases) { scope in
-                            Text(scope.title).tag(scope)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(width: 140)
-                    .disabled(selectedSchoolName == nil)
-                }
-
                 ToolbarItem(placement: .navigationBarTrailing) {
                     if vocPassAuth.isLoggedIn {
-                        Image(systemName: "person.crop.circle.fill")
-                            .foregroundStyle(.blue)
+                        if let currentUser = vocPassAuth.currentUser {
+                            NavigationLink {
+                                ForumUserPostsView(user: ForumUserSnapshot.from(currentUser))
+                                    .environmentObject(apiService)
+                            } label: {
+                                ForumAvatar(user: ForumUserSnapshot.from(currentUser), anonymous: false, size: 30)
+                            }
+                        }
                     } else {
                         Button {
                             showLogin = true
@@ -126,23 +142,44 @@ struct ForumView: View {
                 }
             }
             .onChange(of: selectedScope) { _, _ in
-                Task { await load(reset: true) }
+                Task {
+                    await load(reset: true)
+                    await loadAdminInfoIfNeeded()
+                }
             }
             .onChange(of: selectedSchoolName) { _, newValue in
                 if newValue == nil {
                     selectedScope = .all
                 }
-                Task { await load(reset: true) }
+                Task {
+                    await load(reset: true)
+                    await loadAdminInfoIfNeeded()
+                }
             }
             .task {
                 if posts.isEmpty {
                     await load(reset: true)
                 }
+                await loadAdminInfoIfNeeded()
             }
             .sheet(isPresented: $showLogin) {
                 VocPassLoginSheet()
             }
+            .sheet(item: $reportingContext) { context in
+                ReportSheet(context: context)
+                    .environmentObject(apiService)
+            }
         }
+    }
+
+    private var scopePicker: some View {
+        Picker("範圍", selection: $selectedScope) {
+            ForEach(ForumScope.allCases) { scope in
+                Text(scope.title).tag(scope)
+            }
+        }
+        .pickerStyle(.segmented)
+        .disabled(selectedSchoolName == nil)
     }
 
     @MainActor
@@ -181,15 +218,45 @@ struct ForumView: View {
         guard currentPost.id == posts.last?.id, page < totalPages else { return }
         await load(reset: false)
     }
+
+    @MainActor
+    private func loadAdminInfoIfNeeded() async {
+        guard selectedScope == .currentSchool, let selectedSchoolName else {
+            adminInfo = nil
+            isLoadingAdminInfo = false
+            return
+        }
+
+        isLoadingAdminInfo = true
+        defer { isLoadingAdminInfo = false }
+
+        do {
+            adminInfo = try await apiService.fetchForumAdminInfo(school: selectedSchoolName)
+        } catch {
+            adminInfo = nil
+        }
+    }
+
+    private func moderatorApplyURL(for schoolName: String) -> URL {
+        var components = URLComponents(url: AppConfig.forumURL.appending(path: "admin/apply"), resolvingAgainstBaseURL: false)
+        components?.queryItems = [URLQueryItem(name: "school", value: schoolName)]
+        return components?.url ?? AppConfig.forumURL
+    }
 }
 
 private struct ForumPostRow: View {
+    @EnvironmentObject var apiService: APIService
     let post: ForumPost
+    let showPinned: Bool
+    let onReport: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 10) {
-                ForumAvatar(user: post.user, anonymous: post.anonymous, size: 36)
+                ForumUserLink(user: post.user, anonymous: post.anonymous) {
+                    ForumAvatar(user: post.user, anonymous: post.anonymous, size: 36)
+                }
+                .environmentObject(apiService)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(post.anonymous ? "匿名" : (post.user?.displayName ?? "未知用戶"))
@@ -208,22 +275,51 @@ private struct ForumPostRow: View {
                 }
 
                 Spacer()
+
+                Menu {
+                    Button(role: .destructive, action: onReport) {
+                        Label("檢舉文章", systemImage: "flag")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 30, height: 30)
+                }
             }
 
-            Text(post.title)
-                .font(.headline)
-                .foregroundStyle(.primary)
+            NavigationLink {
+                ForumPostDetailView(post: post)
+                    .environmentObject(apiService)
+            } label: {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 6) {
+                        if showPinned && post.pin {
+                            Label("置頂", systemImage: "pin.fill")
+                                .font(.caption2)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(.orange)
+                        }
 
-            if !post.tags.isEmpty {
-                ForumTagCloud(tags: post.tags)
-            }
+                        Text(post.title)
+                            .font(.headline)
+                            .foregroundStyle(.primary)
+                    }
 
-            if !post.content.isEmpty {
-                Text(post.content)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(3)
+                    if !post.tags.isEmpty {
+                        ForumTagCloud(tags: post.tags)
+                    }
+
+                    if !post.content.isEmpty {
+                        Text(post.content)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(3)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .buttonStyle(.plain)
 
             HStack(spacing: 6) {
                 Image(systemName: "heart.fill")
@@ -245,6 +341,101 @@ private struct ForumPostRow: View {
     }
 }
 
+private struct ForumSchoolAdminHeader: View {
+    let schoolName: String
+    let adminInfo: ForumAdminInfo?
+    let isLoading: Bool
+    let applyURL: URL
+
+    private var displayName: String {
+        adminInfo?.school.isEmpty == false ? adminInfo?.school ?? schoolName : schoolName
+    }
+
+    private var moderatorCount: Int {
+        adminInfo?.admin.count ?? 0
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ForumSchoolIcon(url: adminInfo?.iconURL)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(displayName)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+
+                HStack(spacing: 6) {
+                    if isLoading {
+                        ProgressView()
+                            .controlSize(.mini)
+                    }
+
+                    Text("\(moderatorCount) 位版主")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Spacer(minLength: 8)
+
+            Link(destination: applyURL) {
+                Label("申請", systemImage: "person.badge.plus")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .labelStyle(.titleAndIcon)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .background(Color.blue.opacity(0.12))
+                    .foregroundStyle(.blue)
+                    .clipShape(Capsule())
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color(.separator).opacity(0.18), lineWidth: 1)
+        }
+    }
+}
+
+private struct ForumSchoolIcon: View {
+    let url: URL?
+
+    var body: some View {
+        ZStack {
+            if let url {
+                CachedAsyncImage(url: url) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    default:
+                        Image(systemName: "building.columns.fill")
+                            .resizable()
+                            .scaledToFit()
+                            .padding(10)
+                            .foregroundStyle(.blue)
+                    }
+                }
+            } else {
+                Image(systemName: "building.columns.fill")
+                    .resizable()
+                    .scaledToFit()
+                    .padding(10)
+                    .foregroundStyle(.blue)
+            }
+        }
+        .frame(width: 46, height: 46)
+        .background(Color.blue.opacity(0.1))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+}
+
 struct ForumPostDetailView: View {
     @EnvironmentObject var apiService: APIService
     @ObservedObject private var vocPassAuth = VocPassAuthService.shared
@@ -256,6 +447,7 @@ struct ForumPostDetailView: View {
     @State private var isLoadingMessages = false
     @State private var actionError: String?
     @State private var showLogin = false
+    @State private var reportingContext: ReportContext?
 
     init(post: ForumPost) {
         _post = State(initialValue: post)
@@ -271,7 +463,10 @@ struct ForumPostDetailView: View {
             Section {
                 VStack(alignment: .leading, spacing: 14) {
                     HStack(spacing: 10) {
-                        ForumAvatar(user: post.user, anonymous: post.anonymous, size: 40)
+                        ForumUserLink(user: post.user, anonymous: post.anonymous) {
+                            ForumAvatar(user: post.user, anonymous: post.anonymous, size: 40)
+                        }
+                        .environmentObject(apiService)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(post.anonymous ? "匿名" : (post.user?.displayName ?? "未知用戶"))
                                 .font(.subheadline)
@@ -330,7 +525,10 @@ struct ForumPostDetailView: View {
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(messages) { message in
-                        ForumMessageRow(message: message)
+                        ForumMessageRow(
+                            message: message,
+                            onReport: { reportingContext = ReportContext(forumMessageID: message.id) }
+                        )
                     }
 
                     if page < totalPages {
@@ -343,6 +541,19 @@ struct ForumPostDetailView: View {
         }
         .navigationTitle("文章")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Menu {
+                    Button(role: .destructive) {
+                        reportingContext = ReportContext(forumPostID: post.likeTargetID)
+                    } label: {
+                        Label("檢舉文章", systemImage: "flag")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                }
+            }
+        }
         .refreshable {
             await loadMessages(reset: true)
         }
@@ -359,6 +570,10 @@ struct ForumPostDetailView: View {
         }
         .sheet(isPresented: $showLogin) {
             VocPassLoginSheet()
+        }
+        .sheet(item: $reportingContext) { context in
+            ReportSheet(context: context)
+                .environmentObject(apiService)
         }
     }
 
@@ -417,17 +632,31 @@ struct ForumPostDetailView: View {
 }
 
 private struct ForumMessageRow: View {
+    @EnvironmentObject var apiService: APIService
     let message: ForumMessage
+    let onReport: () -> Void
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            ForumAvatar(user: message.user, anonymous: message.anonymous, size: 32)
+            ForumUserLink(user: message.user, anonymous: message.anonymous) {
+                ForumAvatar(user: message.user, anonymous: message.anonymous, size: 32)
+            }
+            .environmentObject(apiService)
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Text(message.anonymous ? "匿名" : (message.user?.displayName ?? "未知用戶"))
                         .font(.subheadline)
                         .fontWeight(.medium)
                     Spacer()
+                    Menu {
+                        Button(role: .destructive, action: onReport) {
+                            Label("檢舉留言", systemImage: "flag")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                     if !message.created.isEmpty {
                         Text(ForumDateFormatter.display(message.created))
                             .font(.caption2)
@@ -439,6 +668,137 @@ private struct ForumMessageRow: View {
             }
         }
         .padding(.vertical, 4)
+    }
+}
+
+private struct ForumUserLink<Label: View>: View {
+    @EnvironmentObject var apiService: APIService
+    let user: ForumUser?
+    let anonymous: Bool
+    @ViewBuilder let label: () -> Label
+
+    var body: some View {
+        if !anonymous, let user {
+            NavigationLink {
+                ForumUserPostsView(user: user)
+                    .environmentObject(apiService)
+            } label: {
+                label()
+            }
+            .buttonStyle(.plain)
+        } else {
+            label()
+        }
+    }
+}
+
+private struct ForumUserPostsView: View {
+    @EnvironmentObject var apiService: APIService
+
+    let user: ForumUser
+    @State private var posts: [ForumPost] = []
+    @State private var page = 1
+    @State private var totalPages = 1
+    @State private var isLoading = false
+    @State private var isLoadingMore = false
+    @State private var errorMessage: String?
+    @State private var reportingContext: ReportContext?
+
+    var body: some View {
+        Group {
+            if isLoading && posts.isEmpty {
+                ProgressView("載入中...")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let errorMessage, posts.isEmpty {
+                ContentUnavailableView {
+                    Label("載入失敗", systemImage: "exclamationmark.bubble")
+                } description: {
+                    Text(errorMessage)
+                } actions: {
+                    Button("重試") {
+                        Task { await load(reset: true) }
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            } else if posts.isEmpty {
+                ContentUnavailableView("目前沒有文章", systemImage: "doc.text")
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 12) {
+                        ForEach(posts) { post in
+                            ForumPostRow(
+                                post: post,
+                                showPinned: false,
+                                onReport: { reportingContext = ReportContext(forumPostID: post.likeTargetID) }
+                            )
+                            .environmentObject(apiService)
+                            .task {
+                                await loadMoreIfNeeded(currentPost: post)
+                            }
+                        }
+
+                        if isLoadingMore {
+                            ProgressView()
+                                .padding(.vertical, 12)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                }
+                .refreshable {
+                    await load(reset: true)
+                }
+                .background(Color(.systemGroupedBackground))
+            }
+        }
+        .navigationTitle(user.displayName)
+        .navigationBarTitleDisplayMode(.inline)
+        .task {
+            if posts.isEmpty {
+                await load(reset: true)
+            }
+        }
+        .sheet(item: $reportingContext) { context in
+            ReportSheet(context: context)
+                .environmentObject(apiService)
+        }
+    }
+
+    @MainActor
+    private func load(reset: Bool) async {
+        if reset {
+            page = 1
+            totalPages = 1
+            posts = []
+            isLoading = true
+            errorMessage = nil
+        } else {
+            guard page < totalPages, !isLoadingMore else { return }
+            page += 1
+            isLoadingMore = true
+        }
+
+        defer {
+            isLoading = false
+            isLoadingMore = false
+        }
+
+        do {
+            let result = try await apiService.fetchForumUserPosts(userID: user.id, page: page)
+            totalPages = max(result.totalPages, 1)
+            if reset {
+                posts = result.forums
+            } else {
+                posts.append(contentsOf: result.forums)
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func loadMoreIfNeeded(currentPost: ForumPost) async {
+        guard currentPost.id == posts.last?.id, page < totalPages else { return }
+        await load(reset: false)
     }
 }
 
@@ -661,11 +1021,18 @@ private enum ForumPostSnapshot {
             title: post.title,
             content: post.content,
             anonymous: post.anonymous,
+            pin: post.pin,
             tags: post.tags,
             likes: likes,
             user: post.user,
             created: post.created,
             updated: post.updated
         )
+    }
+}
+
+private enum ForumUserSnapshot {
+    static func from(_ user: VocPassUser) -> ForumUser {
+        ForumUser(id: user.id, name: user.name, username: user.username, avatar: user.avatarURL?.absoluteString ?? user.avatar)
     }
 }

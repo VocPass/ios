@@ -956,7 +956,7 @@ class APIService: ObservableObject {
     }
 
     // MARK: - 檢舉
-    func reportContent(restaurantID: String? = nil, restaurantEvaluateID: String? = nil, restaurantMenuID: String? = nil, reason: String, description: String?) async throws {
+    func reportContent(restaurantID: String? = nil, restaurantEvaluateID: String? = nil, restaurantMenuID: String? = nil, forumPostID: String? = nil, forumMessageID: String? = nil, reason: String, description: String?) async throws {
         guard let url = URL(string: "\(AppConfig.vocPassAPIHost)/api/report") else {
             throw URLError(.badURL)
         }
@@ -964,6 +964,8 @@ class APIService: ObservableObject {
         if let r = restaurantID { body["restaurant_id"] = r }
         if let e = restaurantEvaluateID { body["restaurant_evaluate_id"] = e }
         if let m = restaurantMenuID { body["restaurant_menu_id"] = m }
+        if let p = forumPostID { body["forum_id"] = p }
+        if let fm = forumMessageID { body["forum_message_id"] = fm }
         if let d = description, !d.trimmingCharacters(in: .whitespaces).isEmpty {
             body["description"] = d.trimmingCharacters(in: .whitespaces)
         }
@@ -1052,6 +1054,63 @@ class APIService: ObservableObject {
     func fetchForumPosts(school: String, page: Int = 1) async throws -> ForumPostListData {
         let encodedSchool = school.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? school
         guard var components = URLComponents(string: "\(AppConfig.vocPassAPIHost)/api/forum/\(encodedSchool)") else {
+            throw URLError(.badURL)
+        }
+        components.queryItems = [URLQueryItem(name: "page", value: "\(page)")]
+        guard let url = components.url else { throw URLError(.badURL) }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "GET"
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        if VocPassAuthService.shared.isLoggedIn {
+            try? VocPassAuthService.shared.applyAuth(to: &req)
+        }
+
+        let (data, response) = try await urlSession.data(for: req)
+        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard statusCode == 200 else {
+            let payload = extractAPIErrorPayload(from: data)
+            if let msg = payload?.message?.trimmingCharacters(in: .whitespacesAndNewlines), !msg.isEmpty {
+                throw APIError.serverMessage(msg)
+            }
+            throw APIError.httpStatus(statusCode)
+        }
+
+        return try JSONDecoder().decode(APIResponse<ForumPostListData>.self, from: data).data
+    }
+
+    func fetchForumAdminInfo(school: String) async throws -> ForumAdminInfo? {
+        let encodedSchool = school.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? school
+        guard let url = URL(string: "\(AppConfig.vocPassAPIHost)/api/forum/\(encodedSchool)/admin") else {
+            throw URLError(.badURL)
+        }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "GET"
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        let (data, response) = try await urlSession.data(for: req)
+        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard statusCode == 200 else {
+            let payload = extractAPIErrorPayload(from: data)
+            if let msg = payload?.message?.trimmingCharacters(in: .whitespacesAndNewlines), !msg.isEmpty {
+                throw APIError.serverMessage(msg)
+            }
+            throw APIError.httpStatus(statusCode)
+        }
+
+        struct ForumAdminResponse: Decodable {
+            let code: Int
+            let message: String
+            let data: ForumAdminInfo?
+        }
+
+        return try JSONDecoder().decode(ForumAdminResponse.self, from: data).data
+    }
+
+    func fetchForumUserPosts(userID: String, page: Int = 1) async throws -> ForumPostListData {
+        let encodedUserID = userID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? userID
+        guard var components = URLComponents(string: "\(AppConfig.vocPassAPIHost)/api/forum/user/\(encodedUserID)") else {
             throw URLError(.badURL)
         }
         components.queryItems = [URLQueryItem(name: "page", value: "\(page)")]
