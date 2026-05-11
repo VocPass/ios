@@ -254,7 +254,7 @@ struct ForumView: View {
     }
 
     private func moderatorApplyURL(for schoolName: String) -> URL {
-        var components = URLComponents(url: "https://vocpass.com/admin/apply", resolvingAgainstBaseURL: false)
+        var components = URLComponents(string: "\(AppConfig.vocPassAuthHost)/admin/apply")
         components?.queryItems = [URLQueryItem(name: "school", value: schoolName)]
         return components?.url ?? AppConfig.forumURL
     }
