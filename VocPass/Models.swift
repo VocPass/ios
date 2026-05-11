@@ -197,6 +197,12 @@ struct ForumTagStyle: Decodable {
     let color: String?
 }
 
+struct ForumTagOption: Identifiable, Decodable, Hashable {
+    var id: String { name }
+    let name: String
+    let colorHex: String?
+}
+
 struct ForumPost: Identifiable, Decodable {
     let id: String
     let post: String?
@@ -206,16 +212,20 @@ struct ForumPost: Identifiable, Decodable {
     let anonymous: Bool
     let pin: Bool
     let tags: [ForumTag]
+    let images: [String]
     let likes: [String]
     let user: ForumUser?
     let created: String
     let updated: String
 
     var likeTargetID: String { post ?? id }
+    var imageURLs: [URL] {
+        images.compactMap { URL(string: $0) }
+    }
 
     enum CodingKeys: String, CodingKey {
         case id, post, school, title, content, description, body, message
-        case anonymous, pin, tag, tags, likes, user, created, updated
+        case anonymous, pin, tag, tags, image, images, likes, user, created, updated
     }
 
     init(id: String,
@@ -226,6 +236,7 @@ struct ForumPost: Identifiable, Decodable {
          anonymous: Bool,
          pin: Bool,
          tags: [ForumTag],
+         images: [String],
          likes: [String],
          user: ForumUser?,
          created: String,
@@ -238,6 +249,7 @@ struct ForumPost: Identifiable, Decodable {
         self.anonymous = anonymous
         self.pin = pin
         self.tags = tags
+        self.images = images
         self.likes = likes
         self.user = user
         self.created = created
@@ -262,6 +274,9 @@ struct ForumPost: Identifiable, Decodable {
             ?? [:]
         tags = tagMap.map { ForumTag(name: $0.key, colorHex: $0.value.color) }
             .sorted { $0.name < $1.name }
+        images = (try? c.decodeLossyStringArray(forKey: .images))
+            ?? (try? c.decodeLossyStringArray(forKey: .image))
+            ?? []
         likes = (try? c.decode([String].self, forKey: .likes)) ?? []
         user = try? c.decodeIfPresent(ForumUser.self, forKey: .user)
         created = (try? c.decodeLossyString(forKey: .created)) ?? ""

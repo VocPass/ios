@@ -4,6 +4,7 @@
 //
 
 import SwiftUI
+import PhotosUI
 
 private enum ForumScope: String, CaseIterable, Identifiable {
     case currentSchool
@@ -331,6 +332,10 @@ private struct ForumPostRow: View {
                             .foregroundStyle(.secondary)
                             .lineLimit(3)
                     }
+
+                    if !post.imageURLs.isEmpty {
+                        ForumImageStrip(urls: post.imageURLs, maxVisible: 3)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -367,6 +372,10 @@ private struct ForumCreatePostSheet: View {
     @State private var title = ""
     @State private var content = ""
     @State private var anonymous = false
+    @State private var tags: [ForumTagOption] = []
+    @State private var selectedTags: Set<String> = []
+    @State private var selectedPhotoItems: [PhotosPickerItem] = []
+    @State private var selectedImages: [ForumSelectedImage] = []
     @State private var isSubmitting = false
     @State private var errorMessage: String?
 
@@ -386,6 +395,42 @@ private struct ForumCreatePostSheet: View {
                 Section("內容") {
                     TextField("想說些什麼？", text: $content, axis: .vertical)
                         .lineLimit(6...12)
+                }
+
+                if !tags.isEmpty {
+                    Section("標籤") {
+                        FlowLayout(spacing: 8, lineSpacing: 8) {
+                            ForEach(tags) { tag in
+                                Button {
+                                    toggleTag(tag.name)
+                                } label: {
+                                    ForumSelectableTagBadge(tag: tag, isSelected: selectedTags.contains(tag.name))
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+
+                Section("圖片") {
+                    PhotosPicker(selection: $selectedPhotoItems, maxSelectionCount: 5, matching: .images) {
+                        Label("選擇圖片", systemImage: "photo.on.rectangle.angled")
+                    }
+
+                    if !selectedImages.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 10) {
+                                ForEach(selectedImages) { selectedImage in
+                                    Image(uiImage: selectedImage.image)
+                                        .resizable()
+                                        .scaledToFill()
+                                        .frame(width: 76, height: 76)
+                                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                }
+                            }
+                        }
+                    }
                 }
 
                 Section {
@@ -421,6 +466,12 @@ private struct ForumCreatePostSheet: View {
             } message: {
                 Text(errorMessage ?? "")
             }
+            .task {
+                await loadTags()
+            }
+            .onChange(of: selectedPhotoItems) { _, newItems in
+                Task { await loadSelectedImages(from: newItems) }
+            }
         }
     }
 
@@ -436,13 +487,150 @@ private struct ForumCreatePostSheet: View {
                 school: school,
                 title: title.trimmingCharacters(in: .whitespacesAndNewlines),
                 content: content.trimmingCharacters(in: .whitespacesAndNewlines),
-                anonymous: anonymous
+                anonymous: anonymous,
+                tags: Array(selectedTags),
+                images: selectedImages.map { ForumImageUpload(data: $0.data, mimeType: $0.mimeType) }
             )
             dismiss()
             onCreated()
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    @MainActor
+    private func loadTags() async {
+        do {
+            tags = try await apiService.fetchForumTags()
+        } catch {
+            tags = []
+        }
+    }
+
+    private func toggleTag(_ tag: String) {
+        if selectedTags.contains(tag) {
+            selectedTags.remove(tag)
+        } else {
+            selectedTags.insert(tag)
+        }
+    }
+
+    @MainActor
+    private func loadSelectedImages(from items: [PhotosPickerItem]) async {
+        var loaded: [ForumSelectedImage] = []
+        for item in items.prefix(5) {
+            guard let data = try? await item.loadTransferable(type: Data.self),
+                  let image = UIImage(data: data) else {
+                continue
+            }
+            loaded.append(ForumSelectedImage(data: data, mimeType: ForumSelectedImage.mimeType(for: data), image: image))
+        }
+        selectedImages = loaded
+    }
+}
+
+private struct ForumSelectedImage: Identifiable {
+    let id = UUID()
+    let data: Data
+    let mimeType: String
+    let image: UIImage
+
+    static func mimeType(for data: Data) -> String {
+        data.starts(with: [0x89, 0x50, 0x4E, 0x47]) ? "image/png" : "image/jpeg"
+    }
+}
+
+private struct ForumSelectableTagBadge: View {
+    let tag: ForumTagOption
+    let isSelected: Bool
+
+    private var color: Color {
+        Color(hex: tag.colorHex) ?? .blue
+    }
+
+    var body: some View {
+        Text(tag.name)
+            .font(.caption)
+            .fontWeight(.semibold)
+            .foregroundStyle(isSelected ? readableTextColor : color)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(isSelected ? color : color.opacity(0.12))
+            .clipShape(Capsule())
+    }
+
+    private var readableTextColor: Color {
+        guard let components = color.rgbComponents else {
+            return .white
+        }
+        let luminance = (0.299 * components.red) + (0.587 * components.green) + (0.114 * components.blue)
+        return luminance > 0.62 ? .black : .white
+    }
+}
+
+private struct ForumImageStrip: View {
+    let urls: [URL]
+    let maxVisible: Int
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ForEach(Array(urls.prefix(maxVisible).enumerated()), id: \.offset) { _, url in
+                ForumRemoteImage(url: url)
+                    .frame(width: 82, height: 82)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            }
+
+            if urls.count > maxVisible {
+                Text("+\(urls.count - maxVisible)")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 42, height: 82)
+                    .background(Color(.tertiarySystemGroupedBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            }
+        }
+    }
+}
+
+private struct ForumImageGrid: View {
+    let urls: [URL]
+
+    private let columns = [
+        GridItem(.flexible(), spacing: 8),
+        GridItem(.flexible(), spacing: 8)
+    ]
+
+    var body: some View {
+        LazyVGrid(columns: columns, spacing: 8) {
+            ForEach(Array(urls.enumerated()), id: \.offset) { _, url in
+                ForumRemoteImage(url: url)
+                    .aspectRatio(1, contentMode: .fit)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+        }
+    }
+}
+
+private struct ForumRemoteImage: View {
+    let url: URL
+
+    var body: some View {
+        CachedAsyncImage(url: url) { phase in
+            switch phase {
+            case .success(let image):
+                image
+                    .resizable()
+                    .scaledToFill()
+            default:
+                ZStack {
+                    Color(.tertiarySystemGroupedBackground)
+                    Image(systemName: "photo")
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .clipped()
     }
 }
 
@@ -597,6 +785,10 @@ struct ForumPostDetailView: View {
                         Text(post.content)
                             .font(.body)
                             .textSelection(.enabled)
+                    }
+
+                    if !post.imageURLs.isEmpty {
+                        ForumImageGrid(urls: post.imageURLs)
                     }
 
                     Button {
@@ -795,17 +987,20 @@ private struct ForumMessageRow: View {
     let onReport: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .center, spacing: 12) {
             ForumUserLink(user: message.user, anonymous: message.anonymous) {
                 ForumAvatar(user: message.user, anonymous: message.anonymous, size: 32)
             }
             .environmentObject(apiService)
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
+            Image(systemName: "chevron.right")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
                     Text(message.anonymous ? "匿名" : (message.user?.displayName ?? "未知用戶"))
                         .font(.subheadline)
-                        .fontWeight(.medium)
-                    Spacer()
+                        .fontWeight(.semibold)
                     Menu {
                         Button(role: .destructive, action: onReport) {
                             Label("檢舉留言", systemImage: "flag")
@@ -815,6 +1010,7 @@ private struct ForumMessageRow: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
+                    Spacer()
                     if !message.created.isEmpty {
                         Text(ForumDateFormatter.display(message.created))
                             .font(.caption2)
@@ -825,7 +1021,9 @@ private struct ForumMessageRow: View {
                     .font(.subheadline)
             }
         }
-        .padding(.vertical, 4)
+        .padding(12)
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 }
 
@@ -1181,6 +1379,7 @@ private enum ForumPostSnapshot {
             anonymous: post.anonymous,
             pin: post.pin,
             tags: post.tags,
+            images: post.images,
             likes: likes,
             user: post.user,
             created: post.created,

@@ -1108,6 +1108,34 @@ class APIService: ObservableObject {
         return try JSONDecoder().decode(ForumAdminResponse.self, from: data).data
     }
 
+    func fetchForumTags() async throws -> [ForumTagOption] {
+        guard let url = URL(string: "\(AppConfig.vocPassAPIHost)/api/forum/tags") else {
+            throw URLError(.badURL)
+        }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "GET"
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        let (data, response) = try await urlSession.data(for: req)
+        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard statusCode == 200 else {
+            let payload = extractAPIErrorPayload(from: data)
+            if let msg = payload?.message?.trimmingCharacters(in: .whitespacesAndNewlines), !msg.isEmpty {
+                throw APIError.serverMessage(msg)
+            }
+            throw APIError.httpStatus(statusCode)
+        }
+
+        struct TagsResponse: Decodable {
+            let data: [String: ForumTagStyle]
+        }
+
+        let result = try JSONDecoder().decode(TagsResponse.self, from: data)
+        return result.data.map { ForumTagOption(name: $0.key, colorHex: $0.value.color) }
+            .sorted { $0.name < $1.name }
+    }
+
     func fetchForumUserPosts(userID: String, page: Int = 1) async throws -> ForumPostListData {
         let encodedUserID = userID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? userID
         guard var components = URLComponents(string: "\(AppConfig.vocPassAPIHost)/api/forum/user/\(encodedUserID)") else {
@@ -1164,22 +1192,40 @@ class APIService: ObservableObject {
         return try JSONDecoder().decode(APIResponse<ForumMessageListData>.self, from: data).data
     }
 
-    func createForumPost(school: String, title: String, content: String, anonymous: Bool) async throws {
+    func createForumPost(school: String, title: String, content: String, anonymous: Bool, tags: [String], images: [ForumImageUpload]) async throws {
         guard let url = URL(string: "\(AppConfig.vocPassAPIHost)/api/forum/post") else {
             throw URLError(.badURL)
         }
 
+        let boundary = UUID().uuidString
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
-        req.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
+        req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         try VocPassAuthService.shared.applyAuth(to: &req)
-        req.httpBody = formURLEncodedBody([
-            "school": school,
-            "title": title,
-            "content": content,
-            "anonymous": anonymous ? "true" : "false",
-        ])
+
+        var body = Data()
+        appendMultipartField(name: "school", value: school, to: &body, boundary: boundary)
+        appendMultipartField(name: "title", value: title, to: &body, boundary: boundary)
+        appendMultipartField(name: "content", value: content, to: &body, boundary: boundary)
+        appendMultipartField(name: "anonymous", value: anonymous ? "true" : "false", to: &body, boundary: boundary)
+        if !tags.isEmpty,
+           let tagData = try? JSONSerialization.data(withJSONObject: tags),
+           let tagJSON = String(data: tagData, encoding: .utf8) {
+            appendMultipartField(name: "tag", value: tagJSON, to: &body, boundary: boundary)
+        }
+        for (index, image) in images.enumerated() {
+            appendMultipartFile(
+                name: "images",
+                filename: "forum_\(index).\(image.fileExtension)",
+                mimeType: image.mimeType,
+                data: image.data,
+                to: &body,
+                boundary: boundary
+            )
+        }
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        req.httpBody = body
 
         let (data, response) = try await urlSession.data(for: req)
         let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
@@ -1250,6 +1296,30 @@ class APIService: ObservableObject {
         }
         .joined(separator: "&")
         return Data(body.utf8)
+    }
+
+    private func appendMultipartField(name: String, value: String, to body: inout Data, boundary: String) {
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n".data(using: .utf8)!)
+        body.append(value.data(using: .utf8)!)
+        body.append("\r\n".data(using: .utf8)!)
+    }
+
+    private func appendMultipartFile(name: String, filename: String, mimeType: String, data: Data, to body: inout Data, boundary: String) {
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"\(name)\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
+        body.append(data)
+        body.append("\r\n".data(using: .utf8)!)
+    }
+}
+
+struct ForumImageUpload {
+    let data: Data
+    let mimeType: String
+
+    var fileExtension: String {
+        mimeType == "image/png" ? "png" : "jpg"
     }
 }
 
