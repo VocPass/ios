@@ -987,20 +987,28 @@ private struct ForumMessageRow: View {
     let onReport: () -> Void
 
     var body: some View {
-        HStack(alignment: .center, spacing: 12) {
+        HStack(alignment: .top, spacing: 12) {
             ForumUserLink(user: message.user, anonymous: message.anonymous) {
                 ForumAvatar(user: message.user, anonymous: message.anonymous, size: 32)
             }
             .environmentObject(apiService)
-            Image(systemName: "chevron.right")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
 
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(message.anonymous ? "匿名" : (message.user?.displayName ?? "未知用戶"))
                         .font(.subheadline)
                         .fontWeight(.semibold)
+                        .lineLimit(1)
+
+                    if !message.created.isEmpty {
+                        Text(ForumDateFormatter.display(message.created))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+
+                    Spacer(minLength: 8)
+
                     Menu {
                         Button(role: .destructive, action: onReport) {
                             Label("檢舉留言", systemImage: "flag")
@@ -1009,17 +1017,16 @@ private struct ForumMessageRow: View {
                         Image(systemName: "ellipsis")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    if !message.created.isEmpty {
-                        Text(ForumDateFormatter.display(message.created))
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+                            .frame(width: 28, height: 24)
                     }
                 }
+
                 Text(message.content)
                     .font(.subheadline)
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(12)
         .background(Color(.secondarySystemGroupedBackground))
@@ -1032,16 +1039,25 @@ private struct ForumUserLink<Label: View>: View {
     let user: ForumUser?
     let anonymous: Bool
     @ViewBuilder let label: () -> Label
+    @State private var isShowingUserPosts = false
 
     var body: some View {
         if !anonymous, let user {
-            NavigationLink {
-                ForumUserPostsView(user: user)
-                    .environmentObject(apiService)
+            Button {
+                isShowingUserPosts = true
             } label: {
                 label()
             }
             .buttonStyle(.plain)
+            .background {
+                NavigationLink(isActive: $isShowingUserPosts) {
+                    ForumUserPostsView(user: user)
+                        .environmentObject(apiService)
+                } label: {
+                    EmptyView()
+                }
+                .hidden()
+            }
         } else {
             label()
         }
