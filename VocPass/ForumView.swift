@@ -34,6 +34,7 @@ struct ForumView: View {
     @State private var reportingContext: ReportContext?
     @State private var adminInfo: ForumAdminInfo?
     @State private var isLoadingAdminInfo = false
+    @State private var showCreatePost = false
 
     private var selectedSchoolName: String? {
         schoolConfigManager.selectedSchool?.name
@@ -118,20 +119,28 @@ struct ForumView: View {
             .navigationTitle("論壇")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    if vocPassAuth.isLoggedIn {
-                        if let currentUser = vocPassAuth.currentUser {
-                            NavigationLink {
-                                ForumUserPostsView(user: ForumUserSnapshot.from(currentUser))
-                                    .environmentObject(apiService)
+                    HStack(spacing: 14) {
+                        if vocPassAuth.isLoggedIn {
+                            Button {
+                                showCreatePost = true
                             } label: {
-                                ForumAvatar(user: ForumUserSnapshot.from(currentUser), anonymous: false, size: 30)
+                                Image(systemName: "plus")
                             }
-                        }
-                    } else {
-                        Button {
-                            showLogin = true
-                        } label: {
-                            Image(systemName: "person.badge.key")
+
+                            if let currentUser = vocPassAuth.currentUser {
+                                NavigationLink {
+                                    ForumUserPostsView(user: ForumUserSnapshot.from(currentUser))
+                                        .environmentObject(apiService)
+                                } label: {
+                                    ForumAvatar(user: ForumUserSnapshot.from(currentUser), anonymous: false, size: 30)
+                                }
+                            }
+                        } else {
+                            Button {
+                                showLogin = true
+                            } label: {
+                                Image(systemName: "person.badge.key")
+                            }
                         }
                     }
                 }
@@ -164,6 +173,12 @@ struct ForumView: View {
             }
             .sheet(isPresented: $showLogin) {
                 VocPassLoginSheet()
+            }
+            .sheet(isPresented: $showCreatePost) {
+                ForumCreatePostSheet(school: requestSchoolName) {
+                    Task { await load(reset: true) }
+                }
+                .environmentObject(apiService)
             }
             .sheet(item: $reportingContext) { context in
                 ReportSheet(context: context)
@@ -251,47 +266,47 @@ private struct ForumPostRow: View {
     let onReport: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 10) {
-                ForumUserLink(user: post.user, anonymous: post.anonymous) {
-                    ForumAvatar(user: post.user, anonymous: post.anonymous, size: 36)
-                }
+        NavigationLink {
+            ForumPostDetailView(post: post)
                 .environmentObject(apiService)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(post.anonymous ? "匿名" : (post.user?.displayName ?? "未知用戶"))
-                        .font(.subheadline)
-                        .fontWeight(.medium)
-                    HStack(spacing: 6) {
-                        if !post.school.isEmpty {
-                            Text(post.school)
-                        }
-                        if !post.created.isEmpty {
-                            Text(ForumDateFormatter.display(post.created))
-                        }
+        } label: {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .top, spacing: 10) {
+                    ForumUserLink(user: post.user, anonymous: post.anonymous) {
+                        ForumAvatar(user: post.user, anonymous: post.anonymous, size: 36)
                     }
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                }
-
-                Spacer()
-
-                Menu {
-                    Button(role: .destructive, action: onReport) {
-                        Label("檢舉文章", systemImage: "flag")
-                    }
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .frame(width: 30, height: 30)
-                }
-            }
-
-            NavigationLink {
-                ForumPostDetailView(post: post)
                     .environmentObject(apiService)
-            } label: {
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(post.anonymous ? "匿名" : (post.user?.displayName ?? "未知用戶"))
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                        HStack(spacing: 6) {
+                            if !post.school.isEmpty {
+                                Text(post.school)
+                            }
+                            if !post.created.isEmpty {
+                                Text(ForumDateFormatter.display(post.created))
+                            }
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+
+                    Menu {
+                        Button(role: .destructive, action: onReport) {
+                            Label("檢舉文章", systemImage: "flag")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .frame(width: 30, height: 30)
+                    }
+                }
+
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(spacing: 6) {
                         if showPinned && post.pin {
@@ -318,25 +333,115 @@ private struct ForumPostRow: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .buttonStyle(.plain)
 
-            HStack(spacing: 6) {
-                Image(systemName: "heart.fill")
-                    .font(.caption)
-                    .foregroundStyle(.red.opacity(0.8))
-                Text("\(post.likes.count)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    Image(systemName: "heart.fill")
+                        .font(.caption)
+                        .foregroundStyle(.red.opacity(0.8))
+                    Text("\(post.likes.count)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .buttonStyle(.plain)
         .background(Color(.secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .stroke(Color(.separator).opacity(0.18), lineWidth: 1)
+        }
+    }
+}
+
+private struct ForumCreatePostSheet: View {
+    @EnvironmentObject var apiService: APIService
+    @Environment(\.dismiss) private var dismiss
+
+    let school: String
+    let onCreated: () -> Void
+
+    @State private var title = ""
+    @State private var content = ""
+    @State private var anonymous = false
+    @State private var isSubmitting = false
+    @State private var errorMessage: String?
+
+    private var canSubmit: Bool {
+        !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !isSubmitting
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("標題") {
+                    TextField("輸入文章標題", text: $title)
+                }
+
+                Section("內容") {
+                    TextField("想說些什麼？", text: $content, axis: .vertical)
+                        .lineLimit(6...12)
+                }
+
+                Section {
+                    Toggle("匿名發文", isOn: $anonymous)
+                }
+            }
+            .navigationTitle("發文")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+
+                ToolbarItem(placement: .confirmationAction) {
+                    Button {
+                        Task { await submit() }
+                    } label: {
+                        if isSubmitting {
+                            ProgressView()
+                        } else {
+                            Text("送出")
+                                .fontWeight(.semibold)
+                        }
+                    }
+                    .disabled(!canSubmit)
+                }
+            }
+            .alert("發文失敗", isPresented: Binding(
+                get: { errorMessage != nil },
+                set: { if !$0 { errorMessage = nil } }
+            )) {
+                Button("好", role: .cancel) {}
+            } message: {
+                Text(errorMessage ?? "")
+            }
+        }
+    }
+
+    @MainActor
+    private func submit() async {
+        guard canSubmit else { return }
+
+        isSubmitting = true
+        defer { isSubmitting = false }
+
+        do {
+            try await apiService.createForumPost(
+                school: school,
+                title: title.trimmingCharacters(in: .whitespacesAndNewlines),
+                content: content.trimmingCharacters(in: .whitespacesAndNewlines),
+                anonymous: anonymous
+            )
+            dismiss()
+            onCreated()
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 }
@@ -448,6 +553,9 @@ struct ForumPostDetailView: View {
     @State private var actionError: String?
     @State private var showLogin = false
     @State private var reportingContext: ReportContext?
+    @State private var newMessage = ""
+    @State private var newMessageAnonymous = false
+    @State private var isSubmittingMessage = false
 
     init(post: ForumPost) {
         _post = State(initialValue: post)
@@ -511,6 +619,29 @@ struct ForumPostDetailView: View {
                     .buttonStyle(.plain)
                 }
                 .padding(.vertical, 6)
+            }
+
+            Section("發留言") {
+                TextField("輸入留言", text: $newMessage, axis: .vertical)
+                    .lineLimit(2...5)
+
+                Toggle("匿名留言", isOn: $newMessageAnonymous)
+
+                Button {
+                    Task { await submitMessage() }
+                } label: {
+                    if isSubmittingMessage {
+                        HStack {
+                            Spacer()
+                            ProgressView()
+                            Spacer()
+                        }
+                    } else {
+                        Label("送出留言", systemImage: "paperplane.fill")
+                            .frame(maxWidth: .infinity, alignment: .center)
+                    }
+                }
+                .disabled(newMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSubmittingMessage)
             }
 
             Section("留言") {
@@ -626,6 +757,33 @@ struct ForumPostDetailView: View {
             try await apiService.setForumPostLike(postID: post.likeTargetID, liked: shouldLike)
         } catch {
             post = oldPost
+            actionError = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func submitMessage() async {
+        guard vocPassAuth.isLoggedIn else {
+            showLogin = true
+            return
+        }
+
+        let content = newMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !content.isEmpty, !isSubmittingMessage else { return }
+
+        isSubmittingMessage = true
+        defer { isSubmittingMessage = false }
+
+        do {
+            try await apiService.createForumMessage(
+                postID: post.likeTargetID,
+                content: content,
+                anonymous: newMessageAnonymous
+            )
+            newMessage = ""
+            newMessageAnonymous = false
+            await loadMessages(reset: true)
+        } catch {
             actionError = error.localizedDescription
         }
     }

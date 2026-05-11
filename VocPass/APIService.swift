@@ -1164,6 +1164,61 @@ class APIService: ObservableObject {
         return try JSONDecoder().decode(APIResponse<ForumMessageListData>.self, from: data).data
     }
 
+    func createForumPost(school: String, title: String, content: String, anonymous: Bool) async throws {
+        guard let url = URL(string: "\(AppConfig.vocPassAPIHost)/api/forum/post") else {
+            throw URLError(.badURL)
+        }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        try VocPassAuthService.shared.applyAuth(to: &req)
+        req.httpBody = formURLEncodedBody([
+            "school": school,
+            "title": title,
+            "content": content,
+            "anonymous": anonymous ? "true" : "false",
+        ])
+
+        let (data, response) = try await urlSession.data(for: req)
+        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200...299).contains(statusCode) else {
+            let payload = extractAPIErrorPayload(from: data)
+            if let msg = payload?.message?.trimmingCharacters(in: .whitespacesAndNewlines), !msg.isEmpty {
+                throw APIError.serverMessage(msg)
+            }
+            throw APIError.httpStatus(statusCode)
+        }
+    }
+
+    func createForumMessage(postID: String, content: String, anonymous: Bool) async throws {
+        let encodedPostID = postID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? postID
+        guard let url = URL(string: "\(AppConfig.vocPassAPIHost)/api/forum/post/\(encodedPostID)/message") else {
+            throw URLError(.badURL)
+        }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        try VocPassAuthService.shared.applyAuth(to: &req)
+        req.httpBody = formURLEncodedBody([
+            "content": content,
+            "anonymous": anonymous ? "true" : "false",
+        ])
+
+        let (data, response) = try await urlSession.data(for: req)
+        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200...299).contains(statusCode) else {
+            let payload = extractAPIErrorPayload(from: data)
+            if let msg = payload?.message?.trimmingCharacters(in: .whitespacesAndNewlines), !msg.isEmpty {
+                throw APIError.serverMessage(msg)
+            }
+            throw APIError.httpStatus(statusCode)
+        }
+    }
+
     func setForumPostLike(postID: String, liked: Bool) async throws {
         let encodedPostID = postID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? postID
         guard let url = URL(string: "\(AppConfig.vocPassAPIHost)/api/forum/post/\(encodedPostID)/like") else {
@@ -1184,6 +1239,17 @@ class APIService: ObservableObject {
             }
             throw APIError.httpStatus(statusCode)
         }
+    }
+
+    private func formURLEncodedBody(_ values: [String: String]) -> Data {
+        let allowed = CharacterSet.urlQueryAllowed.subtracting(CharacterSet(charactersIn: "&+="))
+        let body = values.map { key, value in
+            let encodedKey = key.addingPercentEncoding(withAllowedCharacters: allowed) ?? key
+            let encodedValue = value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
+            return "\(encodedKey)=\(encodedValue)"
+        }
+        .joined(separator: "&")
+        return Data(body.utf8)
     }
 }
 
