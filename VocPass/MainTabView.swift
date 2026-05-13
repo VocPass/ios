@@ -139,20 +139,22 @@ private struct HomeUserHeader: View {
     let user: VocPassUser
 
     var body: some View {
-        HStack(spacing: 12) {
+        VStack(spacing: 10) {
             avatar
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(spacing: 4) {
                 Text(user.displayName)
                     .font(.title2)
                     .fontWeight(.semibold)
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
+                    .multilineTextAlignment(.center)
 
                 Text("@\(user.username)")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                    .multilineTextAlignment(.center)
             }
         }
         .frame(maxWidth: .infinity, alignment: .center)
