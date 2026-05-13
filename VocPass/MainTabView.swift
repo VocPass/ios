@@ -65,27 +65,11 @@ struct HomePageView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 28) {
-                Spacer()
+            VStack(spacing: 0) {
+                homeHeader
+                    .padding(.top, 28)
 
-                if vocPassAuth.isLoggedIn, let user = vocPassAuth.currentUser {
-                    HomeUserHeader(user: user)
-                } else {
-                    Image(systemName: "graduationcap.fill")
-                        .font(.system(size: 64))
-                        .foregroundStyle(.blue)
-
-                    Text("VocPass")
-                        .font(.largeTitle)
-                        .fontWeight(.bold)
-
-                    Button {
-                        showVocPassLogin = true
-                    } label: {
-                        Label("登入 VocPass 帳號", systemImage: "person.badge.plus")
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
+                Spacer(minLength: 32)
 
                 LazyVGrid(columns: shortcutColumns, spacing: 14) {
                     NavigationLink(destination: W2MListView()) {
@@ -111,8 +95,7 @@ struct HomePageView: View {
                     .buttonStyle(.plain)
                 }
                 .padding(.horizontal, 24)
-
-                Spacer()
+                .padding(.bottom, 36)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(.systemGroupedBackground))
@@ -123,6 +106,30 @@ struct HomePageView: View {
             .sheet(isPresented: $showFollowing) {
                 FollowingListView()
                     .environmentObject(apiService)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var homeHeader: some View {
+        if vocPassAuth.isLoggedIn, let user = vocPassAuth.currentUser {
+            HomeUserHeader(user: user)
+        } else {
+            VStack(spacing: 16) {
+                Image(systemName: "graduationcap.fill")
+                    .font(.system(size: 64))
+                    .foregroundStyle(.blue)
+
+                Text("VocPass")
+                    .font(.largeTitle)
+                    .fontWeight(.bold)
+
+                Button {
+                    showVocPassLogin = true
+                } label: {
+                    Label("登入 VocPass 帳號", systemImage: "person.badge.plus")
+                }
+                .buttonStyle(.borderedProminent)
             }
         }
     }
@@ -161,7 +168,7 @@ private struct HomeUserHeader: View {
                     image
                         .resizable()
                         .scaledToFill()
-                        .frame(width: 72, height: 72)
+                        .frame(width: 88, height: 88)
                         .clipShape(Circle())
                 default:
                     placeholderAvatar
@@ -174,7 +181,7 @@ private struct HomeUserHeader: View {
 
     private var placeholderAvatar: some View {
         Image(systemName: "person.circle.fill")
-            .font(.system(size: 72))
+            .font(.system(size: 88))
             .foregroundStyle(.blue)
     }
 }
