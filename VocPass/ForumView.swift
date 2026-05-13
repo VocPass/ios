@@ -543,13 +543,28 @@ private struct ForumCreatePostSheet: View {
         NavigationStack {
             Form {
                 Section("發佈頻道") {
-                    Picker("頻道", selection: $selectedSchool) {
-                        Text("公頻").tag("all")
-                        if let verifiedSchool {
-                            Text(verifiedSchool).tag(verifiedSchool)
+                    HStack(spacing: 8) {
+                        ForumChannelOptionButton(
+                            title: "公頻",
+                            systemImage: "globe.asia.australia.fill",
+                            isSelected: selectedSchool == "all",
+                            isEnabled: true
+                        ) {
+                            selectedSchool = "all"
+                        }
+
+                        ForumChannelOptionButton(
+                            title: verifiedSchool ?? "本校",
+                            systemImage: "building.columns.fill",
+                            isSelected: verifiedSchool.map { selectedSchool == $0 } ?? false,
+                            isEnabled: verifiedSchool != nil
+                        ) {
+                            if let verifiedSchool {
+                                selectedSchool = verifiedSchool
+                            }
                         }
                     }
-                    .pickerStyle(.inline)
+                    .buttonStyle(.plain)
 
                     if verifiedSchool == nil {
                         Text("完成學校驗證後，才能選擇自己的學校論壇。")
@@ -755,6 +770,51 @@ private struct ForumSelectedImage: Identifiable {
         }
 
         return nil
+    }
+}
+
+private struct ForumChannelOptionButton: View {
+    let title: String
+    let systemImage: String
+    let isSelected: Bool
+    let isEnabled: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: systemImage)
+                    .font(.caption)
+                Text(title)
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.82)
+            }
+            .frame(maxWidth: .infinity, minHeight: 38)
+            .padding(.horizontal, 10)
+            .background(backgroundColor)
+            .foregroundStyle(foregroundColor)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(borderColor, lineWidth: 1)
+            }
+        }
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 1 : 0.45)
+    }
+
+    private var backgroundColor: Color {
+        isSelected ? .blue.opacity(0.16) : Color(.tertiarySystemGroupedBackground)
+    }
+
+    private var foregroundColor: Color {
+        isSelected ? .blue : .primary
+    }
+
+    private var borderColor: Color {
+        isSelected ? .blue.opacity(0.45) : Color(.separator).opacity(0.18)
     }
 }
 
@@ -973,11 +1033,11 @@ private struct ForumSchoolVerificationSheet: View {
                         LabeledContent("目前瀏覽學校", value: selectedSchoolName)
                     }
 
-                    LabeledContent("/auth/me school", value: currentVerifiedSchoolName ?? "null")
+                    LabeledContent("你的學校", value: currentVerifiedSchoolName ?? "未驗證")
                 }
 
                 Section("如何完成驗證") {
-                    Text("需要同時登入過學校帳號和 VocPass 帳號。完成後，/auth/me 的 school 欄位會顯示學校名稱；若為 null，代表目前尚未綁定或驗證學校。")
+                    Text("需要同時登入過學校帳號和 VocPass 帳號。完成後，你的學校欄位會顯示學校名稱；若未驗證成功可嘗試重新打開app或重新登入學校帳號。")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -1270,13 +1330,19 @@ struct ForumPostDetailView: View {
 
     @MainActor
     private func loadModeratorInfoIfNeeded() async {
-        do {
-            async let schoolInfo = shouldLoadSchoolAdminInfo ? apiService.fetchForumAdminInfo(school: post.school) : nil
-            async let vocPassInfo = apiService.fetchVocPassForumAdminInfo()
-            schoolAdminInfo = try await schoolInfo
-            vocPassAdminInfo = try await vocPassInfo
-        } catch {
+        if shouldLoadSchoolAdminInfo {
+            do {
+                schoolAdminInfo = try await apiService.fetchForumAdminInfo(school: post.school)
+            } catch {
+                schoolAdminInfo = nil
+            }
+        } else {
             schoolAdminInfo = nil
+        }
+
+        do {
+            vocPassAdminInfo = try await apiService.fetchVocPassForumAdminInfo()
+        } catch {
             vocPassAdminInfo = nil
         }
     }
@@ -1549,6 +1615,20 @@ private struct ForumUserPostsView: View {
     @State private var isLoadingMore = false
     @State private var errorMessage: String?
     @State private var reportingContext: ReportContext?
+    @State private var vocPassAdminInfo: ForumAdminInfo?
+    @State private var schoolAdminInfoBySchool: [String: ForumAdminInfo] = [:]
+    @State private var loadingAdminSchools: Set<String> = []
+
+    private func authorBadge(for post: ForumPost) -> ForumAuthorBadge? {
+        guard !post.anonymous, let userID = post.user?.id else { return nil }
+        if vocPassAdminInfo?.admin.contains(userID) == true {
+            return .vocPassAdmin
+        }
+        if schoolAdminInfoBySchool[post.school]?.admin.contains(userID) == true {
+            return .schoolModerator
+        }
+        return nil
+    }
 
     var body: some View {
         Group {
@@ -1576,7 +1656,7 @@ private struct ForumUserPostsView: View {
                                 post: post,
                                 showPinned: false,
                                 canShowAdminTags: false,
-                                authorBadge: nil,
+                                authorBadge: authorBadge(for: post),
                                 onReport: { reportingContext = ReportContext(forumPostID: post.likeTargetID) }
                             )
                             .environmentObject(apiService)
@@ -1605,6 +1685,7 @@ private struct ForumUserPostsView: View {
             if posts.isEmpty {
                 await load(reset: true)
             }
+            await loadVocPassAdminInfoIfNeeded()
         }
         .sheet(item: $reportingContext) { context in
             ReportSheet(context: context)
@@ -1639,6 +1720,7 @@ private struct ForumUserPostsView: View {
             } else {
                 posts.append(contentsOf: result.forums)
             }
+            await loadSchoolAdminInfoIfNeeded(for: result.forums)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -1647,6 +1729,32 @@ private struct ForumUserPostsView: View {
     private func loadMoreIfNeeded(currentPost: ForumPost) async {
         guard currentPost.id == posts.last?.id, page < totalPages else { return }
         await load(reset: false)
+    }
+
+    @MainActor
+    private func loadVocPassAdminInfoIfNeeded() async {
+        guard vocPassAdminInfo == nil else { return }
+        do {
+            vocPassAdminInfo = try await apiService.fetchVocPassForumAdminInfo()
+        } catch {
+            vocPassAdminInfo = nil
+        }
+    }
+
+    @MainActor
+    private func loadSchoolAdminInfoIfNeeded(for posts: [ForumPost]) async {
+        let schools = Set(posts.map(\.school).filter { !$0.isEmpty && $0 != "all" && $0 != "vocpass" })
+        for school in schools where schoolAdminInfoBySchool[school] == nil && !loadingAdminSchools.contains(school) {
+            loadingAdminSchools.insert(school)
+            defer { loadingAdminSchools.remove(school) }
+            do {
+                if let info = try await apiService.fetchForumAdminInfo(school: school) {
+                    schoolAdminInfoBySchool[school] = info
+                }
+            } catch {
+                continue
+            }
+        }
     }
 }
 
