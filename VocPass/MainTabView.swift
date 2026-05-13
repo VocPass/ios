@@ -66,10 +66,11 @@ struct HomePageView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                homeHeader
-                    .padding(.top, 28)
+                Spacer(minLength: 24)
 
-                Spacer(minLength: 32)
+                homeHeader
+
+                Spacer(minLength: 24)
 
                 LazyVGrid(columns: shortcutColumns, spacing: 14) {
                     NavigationLink(destination: W2MListView()) {
