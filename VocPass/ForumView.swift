@@ -19,6 +19,25 @@ private enum ForumScope: String, CaseIterable, Identifiable {
     }
 }
 
+private enum ForumAuthorBadge {
+    case schoolModerator
+    case vocPassAdmin
+
+    var color: Color {
+        switch self {
+        case .schoolModerator: return .blue
+        case .vocPassAdmin: return .yellow
+        }
+    }
+
+    var accessibilityLabel: String {
+        switch self {
+        case .schoolModerator: return "學校版主"
+        case .vocPassAdmin: return "VocPass 管理員"
+        }
+    }
+}
+
 struct ForumView: View {
     @EnvironmentObject var apiService: APIService
     @ObservedObject private var vocPassAuth = VocPassAuthService.shared
@@ -34,11 +53,31 @@ struct ForumView: View {
     @State private var showLogin = false
     @State private var reportingContext: ReportContext?
     @State private var adminInfo: ForumAdminInfo?
+    @State private var vocPassAdminInfo: ForumAdminInfo?
+    @State private var schoolAdminInfoBySchool: [String: ForumAdminInfo] = [:]
+    @State private var loadingAdminSchools: Set<String> = []
     @State private var isLoadingAdminInfo = false
     @State private var showCreatePost = false
+    @State private var showSchoolVerification = false
+    @State private var searchText = ""
+    @State private var searchTask: Task<Void, Never>?
 
     private var selectedSchoolName: String? {
         schoolConfigManager.selectedSchool?.name
+    }
+
+    private var verifiedSchoolName: String? {
+        let school = vocPassAuth.currentUser?.school?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return school?.isEmpty == false ? school : nil
+    }
+
+    private var isCurrentSchoolModerator: Bool {
+        guard let userID = vocPassAuth.currentUser?.id,
+              selectedScope == .currentSchool,
+              selectedSchoolName != nil else {
+            return false
+        }
+        return adminInfo?.admin.contains(userID) == true
     }
 
     private var requestSchoolName: String {
@@ -81,7 +120,8 @@ struct ForumView: View {
                                         schoolName: selectedSchoolName,
                                         adminInfo: adminInfo,
                                         isLoading: isLoadingAdminInfo,
-                                        applyURL: moderatorApplyURL(for: selectedSchoolName)
+                                        applyURL: moderatorApplyURL(for: selectedSchoolName),
+                                        onShowVerification: { showSchoolVerification = true }
                                     )
                                 }
 
@@ -93,6 +133,8 @@ struct ForumView: View {
                                         ForumPostRow(
                                             post: post,
                                             showPinned: selectedScope == .currentSchool,
+                                            canShowAdminTags: canShowAdminTags(for: post),
+                                            authorBadge: authorBadge(for: post.user, school: post.school, anonymous: post.anonymous),
                                             onReport: { reportingContext = ReportContext(forumPostID: post.likeTargetID) }
                                         )
                                         .environmentObject(apiService)
@@ -118,6 +160,7 @@ struct ForumView: View {
                 }
             }
             .navigationTitle("論壇")
+            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "搜尋文章")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     HStack(spacing: 14) {
@@ -151,7 +194,11 @@ struct ForumView: View {
                     selectedScope = .all
                 }
             }
+            .onDisappear {
+                searchTask?.cancel()
+            }
             .onChange(of: selectedScope) { _, _ in
+                searchTask?.cancel()
                 Task {
                     await load(reset: true)
                     await loadAdminInfoIfNeeded()
@@ -161,25 +208,45 @@ struct ForumView: View {
                 if newValue == nil {
                     selectedScope = .all
                 }
+                searchTask?.cancel()
                 Task {
                     await load(reset: true)
                     await loadAdminInfoIfNeeded()
                 }
+            }
+            .onChange(of: searchText) { _, _ in
+                scheduleSearchReload()
+            }
+            .onSubmit(of: .search) {
+                searchTask?.cancel()
+                Task { await load(reset: true) }
             }
             .task {
                 if posts.isEmpty {
                     await load(reset: true)
                 }
                 await loadAdminInfoIfNeeded()
+                await loadVocPassAdminInfoIfNeeded()
             }
             .sheet(isPresented: $showLogin) {
                 VocPassLoginSheet()
             }
             .sheet(isPresented: $showCreatePost) {
-                ForumCreatePostSheet(school: requestSchoolName) {
+                ForumCreatePostSheet(
+                    initialSchool: requestSchoolName,
+                    verifiedSchool: verifiedSchoolName,
+                    currentSchool: selectedSchoolName,
+                    canPinCurrentSchool: isCurrentSchoolModerator
+                ) {
                     Task { await load(reset: true) }
                 }
                 .environmentObject(apiService)
+            }
+            .sheet(isPresented: $showSchoolVerification) {
+                ForumSchoolVerificationSheet(
+                    selectedSchoolName: selectedSchoolName,
+                    verifiedSchoolName: verifiedSchoolName
+                )
             }
             .sheet(item: $reportingContext) { context in
                 ReportSheet(context: context)
@@ -218,13 +285,14 @@ struct ForumView: View {
         }
 
         do {
-            let result = try await apiService.fetchForumPosts(school: requestSchoolName, page: page)
+            let result = try await apiService.fetchForumPosts(school: requestSchoolName, page: page, search: searchText)
             totalPages = max(result.totalPages, 1)
             if reset {
                 posts = result.forums
             } else {
                 posts.append(contentsOf: result.forums)
             }
+            await loadSchoolAdminInfoIfNeeded(for: result.forums)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -233,6 +301,60 @@ struct ForumView: View {
     private func loadMoreIfNeeded(currentPost: ForumPost) async {
         guard currentPost.id == posts.last?.id, page < totalPages else { return }
         await load(reset: false)
+    }
+
+    private func scheduleSearchReload() {
+        searchTask?.cancel()
+        searchTask = Task {
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            guard !Task.isCancelled else { return }
+            await load(reset: true)
+        }
+    }
+
+    private func canShowAdminTags(for post: ForumPost) -> Bool {
+        guard let userID = vocPassAuth.currentUser?.id else { return false }
+        return selectedScope == .currentSchool &&
+            post.school == selectedSchoolName &&
+            adminInfo?.admin.contains(userID) == true
+    }
+
+    private func authorBadge(for user: ForumUser?, school: String, anonymous: Bool) -> ForumAuthorBadge? {
+        guard !anonymous, let userID = user?.id else { return nil }
+        if vocPassAdminInfo?.admin.contains(userID) == true {
+            return .vocPassAdmin
+        }
+        if schoolAdminInfoBySchool[school]?.admin.contains(userID) == true ||
+            (school == selectedSchoolName && adminInfo?.admin.contains(userID) == true) {
+            return .schoolModerator
+        }
+        return nil
+    }
+
+    @MainActor
+    private func loadVocPassAdminInfoIfNeeded() async {
+        guard vocPassAdminInfo == nil else { return }
+        do {
+            vocPassAdminInfo = try await apiService.fetchVocPassForumAdminInfo()
+        } catch {
+            vocPassAdminInfo = nil
+        }
+    }
+
+    @MainActor
+    private func loadSchoolAdminInfoIfNeeded(for posts: [ForumPost]) async {
+        let schools = Set(posts.map(\.school).filter { !$0.isEmpty && $0 != "all" && $0 != "vocpass" })
+        for school in schools where schoolAdminInfoBySchool[school] == nil && !loadingAdminSchools.contains(school) {
+            loadingAdminSchools.insert(school)
+            defer { loadingAdminSchools.remove(school) }
+            do {
+                if let info = try await apiService.fetchForumAdminInfo(school: school) {
+                    schoolAdminInfoBySchool[school] = info
+                }
+            } catch {
+                continue
+            }
+        }
     }
 
     @MainActor
@@ -248,13 +370,16 @@ struct ForumView: View {
 
         do {
             adminInfo = try await apiService.fetchForumAdminInfo(school: selectedSchoolName)
+            if let adminInfo {
+                schoolAdminInfoBySchool[selectedSchoolName] = adminInfo
+            }
         } catch {
             adminInfo = nil
         }
     }
 
     private func moderatorApplyURL(for schoolName: String) -> URL {
-        var components = URLComponents(string: "\(AppConfig.vocPassAuthHost)/admin/apply")
+        var components = URLComponents(string: "\(AppConfig.vocPassAuthHost)/apply/admin")
         components?.queryItems = [URLQueryItem(name: "school", value: schoolName)]
         return components?.url ?? AppConfig.forumURL
     }
@@ -264,17 +389,23 @@ private struct ForumPostRow: View {
     @EnvironmentObject var apiService: APIService
     let post: ForumPost
     let showPinned: Bool
+    let canShowAdminTags: Bool
+    let authorBadge: ForumAuthorBadge?
     let onReport: () -> Void
+
+    private var visibleTags: [ForumTag] {
+        post.tags.filter { !$0.adminOnly || canShowAdminTags }
+    }
 
     var body: some View {
         NavigationLink {
-            ForumPostDetailView(post: post)
+            ForumPostDetailView(post: post, canShowAdminTags: canShowAdminTags)
                 .environmentObject(apiService)
         } label: {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .top, spacing: 10) {
                     ForumUserLink(user: post.user, anonymous: post.anonymous) {
-                        ForumAvatar(user: post.user, anonymous: post.anonymous, size: 36)
+                        ForumAvatar(user: post.user, anonymous: post.anonymous, size: 36, badge: authorBadge)
                     }
                     .environmentObject(apiService)
 
@@ -322,8 +453,8 @@ private struct ForumPostRow: View {
                             .foregroundStyle(.primary)
                     }
 
-                    if !post.tags.isEmpty {
-                        ForumTagCloud(tags: post.tags)
+                    if !visibleTags.isEmpty {
+                        ForumTagCloud(tags: visibleTags)
                     }
 
                     if !post.content.isEmpty {
@@ -366,12 +497,16 @@ private struct ForumCreatePostSheet: View {
     @EnvironmentObject var apiService: APIService
     @Environment(\.dismiss) private var dismiss
 
-    let school: String
+    let verifiedSchool: String?
+    let currentSchool: String?
+    let canPinCurrentSchool: Bool
     let onCreated: () -> Void
 
     @State private var title = ""
     @State private var content = ""
     @State private var anonymous = false
+    @State private var pin = false
+    @State private var selectedSchool: String
     @State private var tags: [ForumTagOption] = []
     @State private var selectedTags: Set<String> = []
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
@@ -381,15 +516,48 @@ private struct ForumCreatePostSheet: View {
 
     private let maxImageBytes = 5 * 1024 * 1024
 
+    init(initialSchool: String, verifiedSchool: String?, currentSchool: String?, canPinCurrentSchool: Bool, onCreated: @escaping () -> Void) {
+        self.verifiedSchool = verifiedSchool
+        self.currentSchool = currentSchool
+        self.canPinCurrentSchool = canPinCurrentSchool
+        self.onCreated = onCreated
+        let startingSchool = (initialSchool != "all" && initialSchool == verifiedSchool) ? initialSchool : "all"
+        _selectedSchool = State(initialValue: startingSchool)
+    }
+
     private var canSubmit: Bool {
         !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
         !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
         !isSubmitting
     }
 
+    private var canPinSelectedSchool: Bool {
+        canPinCurrentSchool && selectedSchool == currentSchool && selectedSchool != "all"
+    }
+
+    private var visibleTags: [ForumTagOption] {
+        tags.filter { !$0.adminOnly || canPinSelectedSchool }
+    }
+
     var body: some View {
         NavigationStack {
             Form {
+                Section("發佈頻道") {
+                    Picker("頻道", selection: $selectedSchool) {
+                        Text("公頻").tag("all")
+                        if let verifiedSchool {
+                            Text(verifiedSchool).tag(verifiedSchool)
+                        }
+                    }
+                    .pickerStyle(.inline)
+
+                    if verifiedSchool == nil {
+                        Text("完成學校驗證後，才能選擇自己的學校論壇。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
                 Section("標題") {
                     TextField("輸入文章標題", text: $title)
                 }
@@ -402,7 +570,7 @@ private struct ForumCreatePostSheet: View {
                 if !tags.isEmpty {
                     Section("標籤") {
                         FlowLayout(spacing: 8, lineSpacing: 8) {
-                            ForEach(tags) { tag in
+                            ForEach(visibleTags) { tag in
                                 Button {
                                     toggleTag(tag.name)
                                 } label: {
@@ -440,6 +608,9 @@ private struct ForumCreatePostSheet: View {
 
                 Section {
                     Toggle("匿名發文", isOn: $anonymous)
+                    if canPinSelectedSchool {
+                        Toggle("置頂文章", isOn: $pin)
+                    }
                 }
             }
             .navigationTitle("發文")
@@ -477,6 +648,12 @@ private struct ForumCreatePostSheet: View {
             .onChange(of: selectedPhotoItems) { _, newItems in
                 Task { await loadSelectedImages(from: newItems) }
             }
+            .onChange(of: selectedSchool) { _, _ in
+                pin = canPinSelectedSchool ? pin : false
+                selectedTags = selectedTags.filter { selected in
+                    tags.first(where: { $0.name == selected }).map { !$0.adminOnly || canPinSelectedSchool } ?? true
+                }
+            }
         }
     }
 
@@ -489,10 +666,11 @@ private struct ForumCreatePostSheet: View {
 
         do {
             try await apiService.createForumPost(
-                school: school,
+                school: selectedSchool,
                 title: title.trimmingCharacters(in: .whitespacesAndNewlines),
                 content: content.trimmingCharacters(in: .whitespacesAndNewlines),
                 anonymous: anonymous,
+                pin: canPinSelectedSchool && pin,
                 tags: Array(selectedTags),
                 images: selectedImages.map { ForumImageUpload(data: $0.data, mimeType: $0.mimeType) }
             )
@@ -507,6 +685,9 @@ private struct ForumCreatePostSheet: View {
     private func loadTags() async {
         do {
             tags = try await apiService.fetchForumTags()
+            selectedTags = selectedTags.filter { selected in
+                tags.first(where: { $0.name == selected }).map { !$0.adminOnly || canPinSelectedSchool } ?? true
+            }
         } catch {
             tags = []
         }
@@ -692,6 +873,7 @@ private struct ForumSchoolAdminHeader: View {
     let adminInfo: ForumAdminInfo?
     let isLoading: Bool
     let applyURL: URL
+    let onShowVerification: () -> Void
 
     private var displayName: String {
         adminInfo?.school.isEmpty == false ? adminInfo?.school ?? schoolName : schoolName
@@ -705,23 +887,31 @@ private struct ForumSchoolAdminHeader: View {
         HStack(spacing: 12) {
             ForumSchoolIcon(url: adminInfo?.iconURL)
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(displayName)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-
-                HStack(spacing: 6) {
-                    if isLoading {
-                        ProgressView()
-                            .controlSize(.mini)
+            Button(action: onShowVerification) {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 5) {
+                        Text(displayName)
+                            .font(.headline)
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                        Image(systemName: "checkmark.seal")
+                            .font(.caption)
+                            .foregroundStyle(.blue)
                     }
 
-                    Text("\(moderatorCount) 位版主")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    HStack(spacing: 6) {
+                        if isLoading {
+                            ProgressView()
+                                .controlSize(.mini)
+                        }
+
+                        Text("\(moderatorCount) 位版主")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
+            .buttonStyle(.plain)
 
             Spacer(minLength: 8)
 
@@ -744,6 +934,69 @@ private struct ForumSchoolAdminHeader: View {
         .overlay {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .stroke(Color(.separator).opacity(0.18), lineWidth: 1)
+        }
+    }
+}
+
+private struct ForumSchoolVerificationSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var vocPassAuth = VocPassAuthService.shared
+
+    let selectedSchoolName: String?
+    let verifiedSchoolName: String?
+
+    private var currentVerifiedSchoolName: String? {
+        let school = vocPassAuth.currentUser?.school?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return school?.isEmpty == false ? school : verifiedSchoolName
+    }
+
+    private var statusText: String {
+        currentVerifiedSchoolName ?? "尚未驗證學校"
+    }
+
+    private var statusIcon: String {
+        currentVerifiedSchoolName == nil ? "xmark.seal" : "checkmark.seal.fill"
+    }
+
+    private var statusColor: Color {
+        currentVerifiedSchoolName == nil ? .secondary : .green
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("目前驗證狀態") {
+                    Label(statusText, systemImage: statusIcon)
+                        .foregroundStyle(statusColor)
+
+                    if let selectedSchoolName {
+                        LabeledContent("目前瀏覽學校", value: selectedSchoolName)
+                    }
+
+                    LabeledContent("/auth/me school", value: currentVerifiedSchoolName ?? "null")
+                }
+
+                Section("如何完成驗證") {
+                    Text("需要同時登入過學校帳號和 VocPass 帳號。完成後，/auth/me 的 school 欄位會顯示學校名稱；若為 null，代表目前尚未綁定或驗證學校。")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .navigationTitle("驗證學校")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }
+                }
+            }
+            .task {
+                guard vocPassAuth.isLoggedIn else { return }
+                if let user = try? await vocPassAuth.fetchMe() {
+                    await MainActor.run {
+                        vocPassAuth.currentUser = user
+                    }
+                }
+            }
         }
     }
 }
@@ -788,6 +1041,7 @@ struct ForumPostDetailView: View {
     @ObservedObject private var vocPassAuth = VocPassAuthService.shared
 
     @State private var post: ForumPost
+    private let canShowAdminTags: Bool
     @State private var messages: [ForumMessage] = []
     @State private var totalPages = 1
     @State private var page = 1
@@ -800,14 +1054,32 @@ struct ForumPostDetailView: View {
     @State private var isSubmittingMessage = false
     @State private var showDeletePostConfirmation = false
     @State private var deletingMessage: ForumMessage?
+    @State private var schoolAdminInfo: ForumAdminInfo?
+    @State private var vocPassAdminInfo: ForumAdminInfo?
 
-    init(post: ForumPost) {
+    init(post: ForumPost, canShowAdminTags: Bool = false) {
         _post = State(initialValue: post)
+        self.canShowAdminTags = canShowAdminTags
     }
 
     private var likedByMe: Bool {
         guard let userID = vocPassAuth.currentUser?.id else { return false }
         return post.likes.contains(userID)
+    }
+
+    private var visibleTags: [ForumTag] {
+        post.tags.filter { !$0.adminOnly || canShowAdminTags }
+    }
+
+    private func authorBadge(for user: ForumUser?, anonymous: Bool) -> ForumAuthorBadge? {
+        guard !anonymous, let userID = user?.id else { return nil }
+        if vocPassAdminInfo?.admin.contains(userID) == true {
+            return .vocPassAdmin
+        }
+        if schoolAdminInfo?.admin.contains(userID) == true {
+            return .schoolModerator
+        }
+        return nil
     }
 
     var body: some View {
@@ -816,7 +1088,12 @@ struct ForumPostDetailView: View {
                 VStack(alignment: .leading, spacing: 14) {
                     HStack(spacing: 10) {
                         ForumUserLink(user: post.user, anonymous: post.anonymous) {
-                            ForumAvatar(user: post.user, anonymous: post.anonymous, size: 40)
+                            ForumAvatar(
+                                user: post.user,
+                                anonymous: post.anonymous,
+                                size: 40,
+                                badge: authorBadge(for: post.user, anonymous: post.anonymous)
+                            )
                         }
                         .environmentObject(apiService)
                         VStack(alignment: .leading, spacing: 2) {
@@ -833,8 +1110,8 @@ struct ForumPostDetailView: View {
                         .font(.title3)
                         .fontWeight(.semibold)
 
-                    if !post.tags.isEmpty {
-                        ForumTagCloud(tags: post.tags)
+                    if !visibleTags.isEmpty {
+                        ForumTagCloud(tags: visibleTags)
                     }
 
                     if !post.content.isEmpty {
@@ -907,6 +1184,7 @@ struct ForumPostDetailView: View {
                         ForumMessageRow(
                             message: message,
                             likedByMe: messageLikedByMe(message),
+                            authorBadge: authorBadge(for: message.user, anonymous: message.anonymous),
                             onLike: { Task { await toggleMessageLike(message) } },
                             onDelete: { deletingMessage = message },
                             onReport: { reportingContext = ReportContext(forumMessageID: message.id) }
@@ -946,6 +1224,7 @@ struct ForumPostDetailView: View {
             await loadMessages(reset: true)
         }
         .task {
+            await loadModeratorInfoIfNeeded()
             await loadMessages(reset: true)
         }
         .alert("操作失敗", isPresented: Binding(
@@ -987,6 +1266,23 @@ struct ForumPostDetailView: View {
                 deletingMessage = nil
             }
         }
+    }
+
+    @MainActor
+    private func loadModeratorInfoIfNeeded() async {
+        do {
+            async let schoolInfo = shouldLoadSchoolAdminInfo ? apiService.fetchForumAdminInfo(school: post.school) : nil
+            async let vocPassInfo = apiService.fetchVocPassForumAdminInfo()
+            schoolAdminInfo = try await schoolInfo
+            vocPassAdminInfo = try await vocPassInfo
+        } catch {
+            schoolAdminInfo = nil
+            vocPassAdminInfo = nil
+        }
+    }
+
+    private var shouldLoadSchoolAdminInfo: Bool {
+        !post.school.isEmpty && post.school != "all" && post.school != "vocpass"
     }
 
     @MainActor
@@ -1142,6 +1438,7 @@ private struct ForumMessageRow: View {
     @EnvironmentObject var apiService: APIService
     let message: ForumMessage
     let likedByMe: Bool
+    let authorBadge: ForumAuthorBadge?
     let onLike: () -> Void
     let onDelete: () -> Void
     let onReport: () -> Void
@@ -1149,7 +1446,7 @@ private struct ForumMessageRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             ForumUserLink(user: message.user, anonymous: message.anonymous) {
-                ForumAvatar(user: message.user, anonymous: message.anonymous, size: 32)
+                ForumAvatar(user: message.user, anonymous: message.anonymous, size: 32, badge: authorBadge)
             }
             .environmentObject(apiService)
 
@@ -1278,6 +1575,8 @@ private struct ForumUserPostsView: View {
                             ForumPostRow(
                                 post: post,
                                 showPinned: false,
+                                canShowAdminTags: false,
+                                authorBadge: nil,
                                 onReport: { reportingContext = ReportContext(forumPostID: post.likeTargetID) }
                             )
                             .environmentObject(apiService)
@@ -1355,30 +1654,58 @@ private struct ForumAvatar: View {
     let user: ForumUser?
     let anonymous: Bool
     let size: CGFloat
+    let badge: ForumAuthorBadge?
+
+    init(user: ForumUser?, anonymous: Bool, size: CGFloat, badge: ForumAuthorBadge? = nil) {
+        self.user = user
+        self.anonymous = anonymous
+        self.size = size
+        self.badge = badge
+    }
 
     var body: some View {
-        ZStack {
-            if !anonymous, let avatarURL = user?.avatarURL {
-                CachedAsyncImage(url: avatarURL) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .scaledToFill()
-                    default:
-                        Image(systemName: "person.circle.fill")
-                            .resizable()
-                            .foregroundStyle(.blue)
+        ZStack(alignment: .bottomTrailing) {
+            avatarImage
+                .frame(width: size, height: size)
+                .clipShape(Circle())
+
+            if let badge {
+                Image(systemName: "crown.fill")
+                    .font(.system(size: max(size * 0.28, 9), weight: .bold))
+                    .foregroundStyle(badge.color)
+                    .padding(3)
+                    .background(Circle().fill(Color(.systemBackground)))
+                    .overlay {
+                        Circle()
+                            .stroke(Color(.separator).opacity(0.25), lineWidth: 0.5)
                     }
-                }
-            } else {
-                Image(systemName: anonymous ? "person.crop.circle.fill" : "person.circle.fill")
-                    .resizable()
-                    .foregroundStyle(anonymous ? Color(.systemGray2) : Color.blue)
+                    .offset(x: size * 0.08, y: size * 0.08)
+                    .accessibilityLabel(badge.accessibilityLabel)
             }
         }
         .frame(width: size, height: size)
-        .clipShape(Circle())
+    }
+
+    @ViewBuilder
+    private var avatarImage: some View {
+        if !anonymous, let avatarURL = user?.avatarURL {
+            CachedAsyncImage(url: avatarURL) { phase in
+                switch phase {
+                case .success(let image):
+                    image
+                        .resizable()
+                        .scaledToFill()
+                default:
+                    Image(systemName: "person.circle.fill")
+                        .resizable()
+                        .foregroundStyle(.blue)
+                }
+            }
+        } else {
+            Image(systemName: anonymous ? "person.crop.circle.fill" : "person.circle.fill")
+                .resizable()
+                .foregroundStyle(anonymous ? Color(.systemGray2) : Color.blue)
+        }
     }
 }
 

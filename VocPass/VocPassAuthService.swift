@@ -15,9 +15,10 @@ struct VocPassUser: Codable {
     let emailVisibility: Bool
     let verified: Bool
     let shareStatus: Bool?
+    let school: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, name, username, email, avatar, verified
+        case id, name, username, email, avatar, verified, school
         case emailVisibility = "email_visibility"
         case shareStatus = "curriculum_status"
     }

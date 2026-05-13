@@ -195,12 +195,25 @@ struct ForumAdminInfo: Decodable {
 
 struct ForumTagStyle: Decodable {
     let color: String?
+    let adminOnly: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case color
+        case adminOnly = "admin_only"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        color = try? c.decodeLossyStringIfPresent(forKey: .color)
+        adminOnly = (try? c.decode(Bool.self, forKey: .adminOnly)) ?? false
+    }
 }
 
 struct ForumTagOption: Identifiable, Decodable, Hashable {
     var id: String { name }
     let name: String
     let colorHex: String?
+    let adminOnly: Bool
 }
 
 struct ForumPost: Identifiable, Decodable {
@@ -272,7 +285,7 @@ struct ForumPost: Identifiable, Decodable {
         let tagMap = (try? c.decode([String: ForumTagStyle].self, forKey: .tag))
             ?? (try? c.decode([String: ForumTagStyle].self, forKey: .tags))
             ?? [:]
-        tags = tagMap.map { ForumTag(name: $0.key, colorHex: $0.value.color) }
+        tags = tagMap.map { ForumTag(name: $0.key, colorHex: $0.value.color, adminOnly: $0.value.adminOnly) }
             .sorted { $0.name < $1.name }
         images = (try? c.decodeLossyStringArray(forKey: .images))
             ?? (try? c.decodeLossyStringArray(forKey: .image))
@@ -288,6 +301,7 @@ struct ForumTag: Identifiable {
     var id: String { name }
     let name: String
     let colorHex: String?
+    let adminOnly: Bool
 }
 
 struct ForumMessage: Identifiable, Decodable {

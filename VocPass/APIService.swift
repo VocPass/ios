@@ -1051,12 +1051,16 @@ class APIService: ObservableObject {
     }
 
     // MARK: - 論壇
-    func fetchForumPosts(school: String, page: Int = 1) async throws -> ForumPostListData {
+    func fetchForumPosts(school: String, page: Int = 1, search: String? = nil) async throws -> ForumPostListData {
         let encodedSchool = school.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? school
         guard var components = URLComponents(string: "\(AppConfig.vocPassAPIHost)/api/forum/\(encodedSchool)") else {
             throw URLError(.badURL)
         }
-        components.queryItems = [URLQueryItem(name: "page", value: "\(page)")]
+        var queryItems = [URLQueryItem(name: "page", value: "\(page)")]
+        if let search = search?.trimmingCharacters(in: .whitespacesAndNewlines), !search.isEmpty {
+            queryItems.append(URLQueryItem(name: "search", value: search))
+        }
+        components.queryItems = queryItems
         guard let url = components.url else { throw URLError(.badURL) }
 
         var req = URLRequest(url: url)
@@ -1108,6 +1112,10 @@ class APIService: ObservableObject {
         return try JSONDecoder().decode(ForumAdminResponse.self, from: data).data
     }
 
+    func fetchVocPassForumAdminInfo() async throws -> ForumAdminInfo? {
+        try await fetchForumAdminInfo(school: "vocpass")
+    }
+
     func fetchForumTags() async throws -> [ForumTagOption] {
         guard let url = URL(string: "\(AppConfig.vocPassAPIHost)/api/forum/tags") else {
             throw URLError(.badURL)
@@ -1132,7 +1140,7 @@ class APIService: ObservableObject {
         }
 
         let result = try JSONDecoder().decode(TagsResponse.self, from: data)
-        return result.data.map { ForumTagOption(name: $0.key, colorHex: $0.value.color) }
+        return result.data.map { ForumTagOption(name: $0.key, colorHex: $0.value.color, adminOnly: $0.value.adminOnly) }
             .sorted { $0.name < $1.name }
     }
 
@@ -1192,7 +1200,7 @@ class APIService: ObservableObject {
         return try JSONDecoder().decode(APIResponse<ForumMessageListData>.self, from: data).data
     }
 
-    func createForumPost(school: String, title: String, content: String, anonymous: Bool, tags: [String], images: [ForumImageUpload]) async throws {
+    func createForumPost(school: String, title: String, content: String, anonymous: Bool, pin: Bool, tags: [String], images: [ForumImageUpload]) async throws {
         guard let url = URL(string: "\(AppConfig.vocPassAPIHost)/api/forum/post") else {
             throw URLError(.badURL)
         }
@@ -1209,6 +1217,7 @@ class APIService: ObservableObject {
         appendMultipartField(name: "title", value: title, to: &body, boundary: boundary)
         appendMultipartField(name: "content", value: content, to: &body, boundary: boundary)
         appendMultipartField(name: "anonymous", value: anonymous ? "true" : "false", to: &body, boundary: boundary)
+        appendMultipartField(name: "pin", value: pin ? "true" : "false", to: &body, boundary: boundary)
         if !tags.isEmpty {
             appendMultipartField(name: "tag", value: tags.joined(separator: ","), to: &body, boundary: boundary)
         }
