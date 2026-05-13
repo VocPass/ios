@@ -891,6 +891,111 @@ private struct ForumImageStrip: View {
     }
 }
 
+private struct ForumImageCarousel: View {
+    let urls: [URL]
+    let onSelect: (URL) -> Void
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                ForEach(Array(urls.enumerated()), id: \.offset) { _, url in
+                    Button {
+                        onSelect(url)
+                    } label: {
+                        ForumRemoteImage(url: url)
+                            .frame(width: 220, height: 160)
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("開啟照片")
+                }
+            }
+            .padding(.vertical, 2)
+        }
+    }
+}
+
+private struct ForumImagePreviewItem: Identifiable {
+    let url: URL
+
+    var id: String { url.absoluteString }
+}
+
+private struct ForumImageViewer: View {
+    let url: URL
+    @Environment(\.dismiss) private var dismiss
+    @State private var scale: CGFloat = 1
+    @State private var offset: CGSize = .zero
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Color.black.ignoresSafeArea()
+
+            CachedAsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let image):
+                    image
+                        .resizable()
+                        .scaledToFit()
+                        .scaleEffect(scale)
+                        .offset(offset)
+                        .gesture(imageGesture)
+                        .onTapGesture(count: 2) {
+                            withAnimation {
+                                scale = scale > 1 ? 1 : 2.5
+                                offset = .zero
+                            }
+                        }
+                default:
+                    ProgressView()
+                        .tint(.white)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.title)
+                    .foregroundStyle(.white.opacity(0.86))
+                    .padding()
+            }
+            .accessibilityLabel("關閉照片")
+        }
+    }
+
+    private var imageGesture: some Gesture {
+        MagnificationGesture()
+            .onChanged { value in
+                scale = max(1, value)
+            }
+            .onEnded { _ in
+                if scale <= 1 {
+                    withAnimation {
+                        scale = 1
+                        offset = .zero
+                    }
+                }
+            }
+            .simultaneously(with:
+                DragGesture()
+                    .onChanged { value in
+                        if scale > 1 {
+                            offset = value.translation
+                        }
+                    }
+                    .onEnded { _ in
+                        if scale <= 1 {
+                            withAnimation {
+                                offset = .zero
+                            }
+                        }
+                    }
+            )
+    }
+}
+
 private struct ForumImageGrid: View {
     let urls: [URL]
 
@@ -1120,6 +1225,7 @@ struct ForumPostDetailView: View {
     @State private var deletingMessage: ForumMessage?
     @State private var schoolAdminInfo: ForumAdminInfo?
     @State private var vocPassAdminInfo: ForumAdminInfo?
+    @State private var previewingImage: ForumImagePreviewItem?
 
     init(post: ForumPost, canShowAdminTags: Bool = false) {
         _post = State(initialValue: post)
@@ -1185,7 +1291,9 @@ struct ForumPostDetailView: View {
                     }
 
                     if !post.imageURLs.isEmpty {
-                        ForumImageGrid(urls: post.imageURLs)
+                        ForumImageCarousel(urls: post.imageURLs) { url in
+                            previewingImage = ForumImagePreviewItem(url: url)
+                        }
                     }
 
                     Button {
@@ -1305,6 +1413,9 @@ struct ForumPostDetailView: View {
         .sheet(item: $reportingContext) { context in
             ReportSheet(context: context)
                 .environmentObject(apiService)
+        }
+        .fullScreenCover(item: $previewingImage) { item in
+            ForumImageViewer(url: item.url)
         }
         .confirmationDialog("確定刪除這篇文章？", isPresented: $showDeletePostConfirmation, titleVisibility: .visible) {
             Button("刪除文章", role: .destructive) {
