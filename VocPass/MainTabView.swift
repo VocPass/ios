@@ -13,6 +13,15 @@ import UserNotifications
 struct MainTabView: View {
     @EnvironmentObject var apiService: APIService
     @Binding var selectedTab: Int
+    @Binding var openCurriculumOnLaunch: Bool
+
+    init(
+        selectedTab: Binding<Int>,
+        openCurriculumOnLaunch: Binding<Bool> = .constant(false)
+    ) {
+        _selectedTab = selectedTab
+        _openCurriculumOnLaunch = openCurriculumOnLaunch
+    }
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -22,7 +31,7 @@ struct MainTabView: View {
                 }
                 .tag(0)
 
-            SchoolAffairsView()
+            SchoolAffairsView(openCurriculumOnLaunch: $openCurriculumOnLaunch)
                 .tabItem {
                     Label("校務", systemImage: "building.columns")
                 }
@@ -49,10 +58,14 @@ struct HomePageView: View {
     @ObservedObject private var vocPassAuth = VocPassAuthService.shared
     @State private var showVocPassLogin = false
     @State private var showFollowing = false
+    private let shortcutColumns = [
+        GridItem(.flexible(), spacing: 14),
+        GridItem(.flexible(), spacing: 14)
+    ]
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 24) {
+            VStack(spacing: 28) {
                 Spacer()
 
                 if vocPassAuth.isLoggedIn, let user = vocPassAuth.currentUser {
@@ -103,66 +116,80 @@ struct HomePageView: View {
                     .buttonStyle(.borderedProminent)
                 }
 
-                NavigationLink(destination: W2MListView()) {
-                    Label("出來玩", systemImage: "calendar.badge.plus")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.purple.opacity(0.12))
-                        .foregroundStyle(Color.purple)
-                        .clipShape(RoundedRectangle(cornerRadius: 14))
-                }
-                .buttonStyle(.plain)
-                .padding(.horizontal, 32)
+                LazyVGrid(columns: shortcutColumns, spacing: 14) {
+                    NavigationLink(destination: W2MListView()) {
+                        HomeShortcutTile(title: "出來玩", systemImage: "calendar.badge.plus")
+                    }
+                    .buttonStyle(.plain)
 
-                NavigationLink(destination: WallpaperTemplateListView()) {
-                    Label("課表產生器", systemImage: "wand.and.stars")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.pink.opacity(0.12))
-                        .foregroundStyle(Color.pink)
-                        .clipShape(RoundedRectangle(cornerRadius: 14))
-                }
-                .buttonStyle(.plain)
-                .padding(.horizontal, 32)
+                    NavigationLink(destination: WallpaperTemplateListView()) {
+                        HomeShortcutTile(title: "課表產生器", systemImage: "wand.and.stars")
+                    }
+                    .buttonStyle(.plain)
 
-                NavigationLink(destination: RestaurantView()) {
-                    Label("吃啥？", systemImage: "fork.knife")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.orange.opacity(0.15))
-                        .foregroundStyle(Color.orange)
-                        .clipShape(RoundedRectangle(cornerRadius: 14))
-                }
-                .buttonStyle(.plain)
-                .padding(.horizontal, 32)
+                    NavigationLink(destination: RestaurantView()) {
+                        HomeShortcutTile(title: "吃啥？", systemImage: "fork.knife")
+                    }
+                    .buttonStyle(.plain)
 
-                Button {
-                    showFollowing = true
-                } label: {
-                    Label("不揪？", systemImage: "person.2.fill")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.blue.opacity(0.12))
-                        .foregroundStyle(Color.blue)
-                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                    Button {
+                        showFollowing = true
+                    } label: {
+                        HomeShortcutTile(title: "不揪？", systemImage: "person.2.fill")
+                    }
+                    .buttonStyle(.plain)
                 }
-                .padding(.horizontal, 32)
-                .sheet(isPresented: $showFollowing) {
-                    FollowingListView()
-                        .environmentObject(apiService)
-                }
+                .padding(.horizontal, 24)
 
                 Spacer()
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(.systemGroupedBackground))
             .navigationTitle("首頁")
             .sheet(isPresented: $showVocPassLogin) {
                 VocPassLoginSheet()
             }
+            .sheet(isPresented: $showFollowing) {
+                FollowingListView()
+                    .environmentObject(apiService)
+            }
         }
+    }
+}
+
+private struct HomeShortcutTile: View {
+    let title: String
+    let systemImage: String
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color(.secondarySystemGroupedBackground))
+
+            VStack {
+                HStack {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 28, weight: .semibold))
+                        .foregroundStyle(Color.teal)
+                    Spacer()
+                }
+
+                Spacer()
+
+                HStack {
+                    Spacer()
+                    Text(title)
+                        .font(.headline)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.primary)
+                        .multilineTextAlignment(.trailing)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.85)
+                }
+            }
+            .padding(16)
+        }
+        .frame(maxWidth: .infinity, minHeight: 132)
     }
 }
 
@@ -172,6 +199,11 @@ struct SchoolAffairsView: View {
     @StateObject private var schoolConfigManager = SchoolConfigManager.shared
     @State private var showLogin = false
     @State private var showTelephone = false
+    @Binding var openCurriculumOnLaunch: Bool
+
+    init(openCurriculumOnLaunch: Binding<Bool> = .constant(false)) {
+        _openCurriculumOnLaunch = openCurriculumOnLaunch
+    }
 
     var body: some View {
         NavigationStack {
@@ -279,6 +311,9 @@ struct SchoolAffairsView: View {
                 }
             }
             .navigationTitle("校務")
+            .navigationDestination(isPresented: $openCurriculumOnLaunch) {
+                CurriculumView()
+            }
             .navigationDestination(isPresented: $showLogin) {
                 if let school = schoolConfigManager.selectedSchool,
                    let loginURL = school.loginURL {
@@ -310,6 +345,7 @@ struct SettingsView: View {
     @State private var isLoadingDevelopers = false
     @State private var developerLoadError: String?
     @State private var showServerSheet = false
+    @AppStorage(AppLaunchPage.storageKey) private var launchPageRaw = AppLaunchPage.home.rawValue
 
     var body: some View {
         NavigationStack {
@@ -362,6 +398,14 @@ struct SettingsView: View {
                         }
                     }
                     .buttonStyle(.plain)
+                }
+
+                Section("啟動") {
+                    Picker("打開 App 時顯示", selection: $launchPageRaw) {
+                        ForEach(AppLaunchPage.allCases) { page in
+                            Text(page.title).tag(page.rawValue)
+                        }
+                    }
                 }
 
                 Section("儲存空間") {

@@ -7,13 +7,41 @@
 
 import SwiftUI
 
+enum AppLaunchPage: String, CaseIterable, Identifiable {
+    case home
+    case curriculum
+
+    static let storageKey = "app_launch_page"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .home: return "首頁"
+        case .curriculum: return "課表"
+        }
+    }
+
+    var tabIndex: Int {
+        switch self {
+        case .home: return 0
+        case .curriculum: return 1
+        }
+    }
+
+    static var saved: AppLaunchPage {
+        AppLaunchPage(rawValue: UserDefaults.standard.string(forKey: storageKey) ?? "") ?? .home
+    }
+}
+
 struct ContentView: View {
     @StateObject private var apiService = APIService.shared
     @StateObject private var schoolConfigManager = SchoolConfigManager.shared
     @State private var hasSeenOnboarding = CacheService.shared.hasSeenOnboarding
     @State private var hasSelectedSchool = SchoolConfigManager.shared.hasSelectedSchool
     @State private var isCheckingSession = true
-    @State private var selectedTab = 0
+    @State private var selectedTab = AppLaunchPage.saved.tabIndex
+    @State private var openCurriculumOnLaunch = AppLaunchPage.saved == .curriculum
     @State private var showSchoolPicker = false
     @State private var schoolPickerDismissed = false
     @State private var deepLinkEventID: W2MDeepLinkTarget?
@@ -27,7 +55,10 @@ struct ContentView: View {
             } else if !hasSeenOnboarding {
                 OnboardingView(hasSeenOnboarding: $hasSeenOnboarding)
             } else {
-                MainTabView(selectedTab: $selectedTab)
+                MainTabView(
+                    selectedTab: $selectedTab,
+                    openCurriculumOnLaunch: $openCurriculumOnLaunch
+                )
                     .environmentObject(apiService)
                     .sheet(isPresented: .init(
                         get: { (!hasSelectedSchool && !schoolPickerDismissed) || showSchoolPicker },
