@@ -69,36 +69,7 @@ struct HomePageView: View {
                 Spacer()
 
                 if vocPassAuth.isLoggedIn, let user = vocPassAuth.currentUser {
-                    // 頭像
-                    if let avatarURL = user.avatarURL {
-                        CachedAsyncImage(url: avatarURL) { phase in
-                            switch phase {
-                            case .success(let image):
-                                image
-                                    .resizable()
-                                    .scaledToFill()
-                                    .frame(width: 80, height: 80)
-                                    .clipShape(Circle())
-                            default:
-                                Image(systemName: "person.circle.fill")
-                                    .font(.system(size: 80))
-                                    .foregroundStyle(.blue)
-                            }
-                        }
-                    } else {
-                        Image(systemName: "person.circle.fill")
-                            .font(.system(size: 80))
-                            .foregroundStyle(.blue)
-                    }
-
-                    VStack(spacing: 4) {
-                        Text(user.displayName)
-                            .font(.title2)
-                            .fontWeight(.semibold)
-                        Text("@\(user.username)")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
+                    HomeUserHeader(user: user)
                 } else {
                     Image(systemName: "graduationcap.fill")
                         .font(.system(size: 64))
@@ -154,6 +125,57 @@ struct HomePageView: View {
                     .environmentObject(apiService)
             }
         }
+    }
+}
+
+private struct HomeUserHeader: View {
+    let user: VocPassUser
+
+    var body: some View {
+        HStack(spacing: 12) {
+            avatar
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(user.displayName)
+                    .font(.title2)
+                    .fontWeight(.semibold)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+
+                Text("@\(user.username)")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+        .padding(.horizontal, 24)
+    }
+
+    @ViewBuilder
+    private var avatar: some View {
+        if let avatarURL = user.avatarURL {
+            CachedAsyncImage(url: avatarURL) { phase in
+                switch phase {
+                case .success(let image):
+                    image
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 72, height: 72)
+                        .clipShape(Circle())
+                default:
+                    placeholderAvatar
+                }
+            }
+        } else {
+            placeholderAvatar
+        }
+    }
+
+    private var placeholderAvatar: some View {
+        Image(systemName: "person.circle.fill")
+            .font(.system(size: 72))
+            .foregroundStyle(.blue)
     }
 }
 
