@@ -164,6 +164,10 @@ struct ForumView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     HStack(spacing: 14) {
+                        Link(destination: URL(string: "https://vocpass.com/community-guidelines")!) {
+                            Image(systemName: "doc.text")
+                        }
+
                         if vocPassAuth.isLoggedIn {
                             Button {
                                 showCreatePost = true
