@@ -5,6 +5,7 @@
 
 import SwiftUI
 import PhotosUI
+import QuickLook
 
 private enum ForumScope: String, CaseIterable, Identifiable {
     case currentSchool
@@ -462,10 +463,9 @@ private struct ForumPostRow: View {
                     }
 
                     if !post.content.isEmpty {
-                        Text(post.content)
+                        ForumLinkifiedText(post.content, lineLimit: 3)
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
-                            .lineLimit(3)
                     }
 
                     if !post.imageURLs.isEmpty {
@@ -891,6 +891,56 @@ private struct ForumImageStrip: View {
     }
 }
 
+private struct ForumLinkifiedText: View {
+    let content: String
+    let lineLimit: Int?
+
+    init(_ content: String, lineLimit: Int? = nil) {
+        self.content = content
+        self.lineLimit = lineLimit
+    }
+
+    var body: some View {
+        Text(attributedContent)
+            .lineLimit(lineLimit)
+    }
+
+    private var attributedContent: AttributedString {
+        var attributed = AttributedString(content)
+        let nsString = content as NSString
+        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else {
+            return attributed
+        }
+
+        detector.enumerateMatches(in: content, options: [], range: NSRange(location: 0, length: nsString.length)) { match, _, _ in
+            guard let match,
+                  let stringRange = Range(match.range, in: content),
+                  let lowerBound = AttributedString.Index(stringRange.lowerBound, within: attributed),
+                  let upperBound = AttributedString.Index(stringRange.upperBound, within: attributed) else {
+                return
+            }
+
+            let detectedText = String(content[stringRange])
+            let url = match.url ?? ForumLinkifiedText.normalizedURL(from: detectedText)
+            if let url {
+                attributed[lowerBound..<upperBound].link = url
+                attributed[lowerBound..<upperBound].foregroundColor = .accentColor
+                attributed[lowerBound..<upperBound].underlineStyle = .single
+            }
+        }
+
+        return attributed
+    }
+
+    private static func normalizedURL(from text: String) -> URL? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let url = URL(string: trimmed), url.scheme != nil {
+            return url
+        }
+        return URL(string: "https://\(trimmed)")
+    }
+}
+
 private struct ForumImageCarousel: View {
     let urls: [URL]
     let onSelect: (URL) -> Void
@@ -903,7 +953,7 @@ private struct ForumImageCarousel: View {
                         onSelect(url)
                     } label: {
                         ForumRemoteImage(url: url)
-                            .frame(width: 220, height: 160)
+                            .frame(width: 180, height: 180)
                             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     }
                     .buttonStyle(.plain)
@@ -915,84 +965,37 @@ private struct ForumImageCarousel: View {
     }
 }
 
-private struct ForumImagePreviewItem: Identifiable {
-    let url: URL
+private actor ForumQuickLookImageCache {
+    static let shared = ForumQuickLookImageCache()
 
-    var id: String { url.absoluteString }
-}
+    private let directory: URL
 
-private struct ForumImageViewer: View {
-    let url: URL
-    @Environment(\.dismiss) private var dismiss
-    @State private var scale: CGFloat = 1
-    @State private var offset: CGSize = .zero
-
-    var body: some View {
-        ZStack(alignment: .topTrailing) {
-            Color.black.ignoresSafeArea()
-
-            CachedAsyncImage(url: url) { phase in
-                switch phase {
-                case .success(let image):
-                    image
-                        .resizable()
-                        .scaledToFit()
-                        .scaleEffect(scale)
-                        .offset(offset)
-                        .gesture(imageGesture)
-                        .onTapGesture(count: 2) {
-                            withAnimation {
-                                scale = scale > 1 ? 1 : 2.5
-                                offset = .zero
-                            }
-                        }
-                default:
-                    ProgressView()
-                        .tint(.white)
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            Button {
-                dismiss()
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.title)
-                    .foregroundStyle(.white.opacity(0.86))
-                    .padding()
-            }
-            .accessibilityLabel("關閉照片")
-        }
+    init() {
+        directory = FileManager.default.temporaryDirectory.appendingPathComponent("ForumImagePreviews", isDirectory: true)
     }
 
-    private var imageGesture: some Gesture {
-        MagnificationGesture()
-            .onChanged { value in
-                scale = max(1, value)
-            }
-            .onEnded { _ in
-                if scale <= 1 {
-                    withAnimation {
-                        scale = 1
-                        offset = .zero
-                    }
-                }
-            }
-            .simultaneously(with:
-                DragGesture()
-                    .onChanged { value in
-                        if scale > 1 {
-                            offset = value.translation
-                        }
-                    }
-                    .onEnded { _ in
-                        if scale <= 1 {
-                            withAnimation {
-                                offset = .zero
-                            }
-                        }
-                    }
-            )
+    func previewURL(for url: URL) async throws -> URL {
+        guard !url.isFileURL else { return url }
+
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let fileURL = directory.appendingPathComponent(fileName(for: url))
+
+        if FileManager.default.fileExists(atPath: fileURL.path) {
+            return fileURL
+        }
+
+        let (downloadedURL, _) = try await URLSession.shared.download(from: url)
+        if FileManager.default.fileExists(atPath: fileURL.path) {
+            try FileManager.default.removeItem(at: fileURL)
+        }
+        try FileManager.default.moveItem(at: downloadedURL, to: fileURL)
+        return fileURL
+    }
+
+    private func fileName(for url: URL) -> String {
+        let digest = String(format: "%016llx", UInt64(bitPattern: Int64(url.absoluteString.hashValue)))
+        let pathExtension = url.pathExtension.isEmpty ? "jpg" : url.pathExtension
+        return "\(digest).\(pathExtension)"
     }
 }
 
@@ -1225,7 +1228,8 @@ struct ForumPostDetailView: View {
     @State private var deletingMessage: ForumMessage?
     @State private var schoolAdminInfo: ForumAdminInfo?
     @State private var vocPassAdminInfo: ForumAdminInfo?
-    @State private var previewingImage: ForumImagePreviewItem?
+    @State private var previewingImageURL: URL?
+    @State private var isPreparingImagePreview = false
 
     init(post: ForumPost, canShowAdminTags: Bool = false) {
         _post = State(initialValue: post)
@@ -1285,14 +1289,23 @@ struct ForumPostDetailView: View {
                     }
 
                     if !post.content.isEmpty {
-                        Text(post.content)
+                        ForumLinkifiedText(post.content)
                             .font(.body)
                             .textSelection(.enabled)
                     }
 
                     if !post.imageURLs.isEmpty {
                         ForumImageCarousel(urls: post.imageURLs) { url in
-                            previewingImage = ForumImagePreviewItem(url: url)
+                            Task { await openImagePreview(url) }
+                        }
+                    }
+
+                    if isPreparingImagePreview {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                            Text("準備預覽中...")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
                     }
 
@@ -1414,9 +1427,7 @@ struct ForumPostDetailView: View {
             ReportSheet(context: context)
                 .environmentObject(apiService)
         }
-        .fullScreenCover(item: $previewingImage) { item in
-            ForumImageViewer(url: item.url)
-        }
+        .quickLookPreview($previewingImageURL)
         .confirmationDialog("確定刪除這篇文章？", isPresented: $showDeletePostConfirmation, titleVisibility: .visible) {
             Button("刪除文章", role: .destructive) {
                 Task { await deletePost() }
@@ -1522,6 +1533,20 @@ struct ForumPostDetailView: View {
     private func messageLikedByMe(_ message: ForumMessage) -> Bool {
         guard let userID = vocPassAuth.currentUser?.id else { return false }
         return message.likes.contains(userID)
+    }
+
+    @MainActor
+    private func openImagePreview(_ url: URL) async {
+        guard !isPreparingImagePreview else { return }
+
+        isPreparingImagePreview = true
+        defer { isPreparingImagePreview = false }
+
+        do {
+            previewingImageURL = try await ForumQuickLookImageCache.shared.previewURL(for: url)
+        } catch {
+            actionError = error.localizedDescription
+        }
     }
 
     @MainActor
