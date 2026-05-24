@@ -23,9 +23,10 @@ class CaptchaRecognizer {
     func recognizeCaptchaFromWebView(
         _ webView: WKWebView,
         captchaSelector: String,
+        captchaSelectorType: String? = nil,
         completion: @escaping (String?) -> Void
     ) {
-        getCaptchaImageRect(webView: webView, selector: captchaSelector) { [weak self] rect in
+        getCaptchaImageRect(webView: webView, selector: captchaSelector, selectorType: captchaSelectorType) { [weak self] rect in
             guard let rect = rect else {
                 print("❌ [CaptchaRecognizer] 無法獲取驗證碼圖片位置")
                 completion(nil)
@@ -56,23 +57,39 @@ class CaptchaRecognizer {
     private func getCaptchaImageRect(
         webView: WKWebView,
         selector: String,
+        selectorType: String?,
         completion: @escaping (CGRect?) -> Void
     ) {
         let script = """
         (function() {
             try {
                 var element = null;
+                var selector = \(Self.javaScriptStringLiteral(selector));
+                var selectorType = \(Self.javaScriptStringLiteral(selectorType ?? ""));
+
+                function cssEscape(value) {
+                    if (window.CSS && CSS.escape) return CSS.escape(value);
+                    return String(value).replace(/["\\\\]/g, '\\\\$&');
+                }
+
+                function queryExplicitSelector() {
+                    if (!selector) return null;
+                    var escaped = cssEscape(selector);
+
+                    if (selectorType === 'class') return document.querySelector('.' + escaped);
+                    if (selectorType === 'id') return document.querySelector('#' + escaped);
+                    if (selectorType === 'name') return document.querySelector('[name="' + escaped + '"]');
+                    if (selector.charAt(0) === '.' || selector.charAt(0) === '#' || selector.charAt(0) === '[') {
+                        return document.querySelector(selector);
+                    }
+
+                    return document.querySelector('.' + escaped) ||
+                           document.querySelector('#' + escaped) ||
+                           document.querySelector('[name="' + escaped + '"]') ||
+                           document.querySelector('img[alt*="' + selector.replace(/"/g, '\\\\"') + '"]');
+                }
                 
-                element = document.querySelector('.\(selector)');
-                if (!element) {
-                    element = document.querySelector('#\(selector)');
-                }
-                if (!element) {
-                    element = document.querySelector('[name="\(selector)"]');
-                }
-                if (!element) {
-                    element = document.querySelector('img[alt*="\(selector)"]');
-                }
+                element = queryExplicitSelector();
                 if (!element) {
                     var images = document.querySelectorAll('img');
                     for (var i = 0; i < images.length; i++) {
@@ -99,9 +116,7 @@ class CaptchaRecognizer {
                     x: rect.left,
                     y: rect.top,
                     width: rect.width,
-                    height: rect.height,
-                    scrollX: window.scrollX,
-                    scrollY: window.scrollY
+                    height: rect.height
                 };
             } catch (e) {
                 return { error: e.toString() };
@@ -128,24 +143,43 @@ class CaptchaRecognizer {
                 return
             }
             
-            guard let x = resultDict["x"] as? CGFloat,
-                  let y = resultDict["y"] as? CGFloat,
-                  let width = resultDict["width"] as? CGFloat,
-                  let height = resultDict["height"] as? CGFloat,
-                  let scrollX = resultDict["scrollX"] as? CGFloat,
-                  let scrollY = resultDict["scrollY"] as? CGFloat else {
+            guard let x = self.cgFloat(from: resultDict["x"]),
+                  let y = self.cgFloat(from: resultDict["y"]),
+                  let width = self.cgFloat(from: resultDict["width"]),
+                  let height = self.cgFloat(from: resultDict["height"]) else {
                 print("❌ [CaptchaRecognizer] 無法解析圖片位置資訊")
                 completion(nil)
                 return
             }
             
-            let actualX = x + scrollX
-            let actualY = y + scrollY
-            let rect = CGRect(x: actualX, y: actualY, width: width, height: height)
+            let rect = CGRect(x: x, y: y, width: width, height: height)
             
             print("📐 [CaptchaRecognizer] 驗證碼圖片位置: \(rect)")
             completion(rect)
         }
+    }
+
+    private static func javaScriptStringLiteral(_ value: String) -> String {
+        guard let data = try? JSONSerialization.data(withJSONObject: [value], options: []),
+              let json = String(data: data, encoding: .utf8),
+              json.count >= 2 else {
+            return "''"
+        }
+
+        return String(json.dropFirst().dropLast())
+    }
+
+    private func cgFloat(from value: Any?) -> CGFloat? {
+        if let number = value as? NSNumber {
+            return CGFloat(truncating: number)
+        }
+        if let double = value as? Double {
+            return CGFloat(double)
+        }
+        if let int = value as? Int {
+            return CGFloat(int)
+        }
+        return nil
     }
     
     private func cropImage(image: UIImage, rect: CGRect) -> UIImage? {

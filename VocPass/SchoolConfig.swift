@@ -228,18 +228,22 @@ struct LoginConfig: Codable {
 
 struct FieldConfig: Codable {
     let name: String
+    let id: String?
 
-    init(name: String) {
+    init(name: String, id: String? = nil) {
         self.name = name
+        self.id = id
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
+        let decodedID = try container.decodeIfPresent(String.self, forKey: .id)
+        id = decodedID?.isEmpty == false ? decodedID : nil
     }
 
     enum CodingKeys: String, CodingKey {
-        case name
+        case name, id
     }
 }
 
@@ -427,6 +431,7 @@ class SchoolConfigManager: ObservableObject {
                     api: config.api,
                     notice: config.notice,
                     telephone: config.telephone,
+                    js: config.js,
                     url: config.url,
                     login: config.login,
                     route: config.route

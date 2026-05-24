@@ -22,6 +22,16 @@ struct WebView: UIViewRepresentable {
     private var savedUsername: String? { CacheService.shared.savedUsername }
     private var savedPassword: String? { CacheService.shared.savedPassword }
 
+    private static func javaScriptStringLiteral(_ value: String) -> String {
+        guard let data = try? JSONSerialization.data(withJSONObject: [value], options: []),
+              let json = String(data: data, encoding: .utf8),
+              json.count >= 2 else {
+            return "''"
+        }
+
+        return String(json.dropFirst().dropLast())
+    }
+
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
     }
@@ -39,12 +49,16 @@ struct WebView: UIViewRepresentable {
         let username = savedUsername ?? ""
         let password = savedPassword ?? ""
         let usernameFieldName = school.login.username.name
+        let usernameFieldID = school.login.username.id ?? school.login.username.name
         let passwordFieldName = school.login.password.name
+        let passwordFieldID = school.login.password.id ?? school.login.password.name
         let captchaFieldName = school.login.captcha.name
+        let captchaFieldID = school.login.captcha.id ?? school.login.captcha.name
         let buttonClass = school.login.button.class
         let captchaImageSelector = school.login.captchaImage?.selector.isEmpty == false
             ? school.login.captchaImage?.selector ?? "captcha"
             : "captcha"
+        let captchaImageType = school.login.captchaImage?.type ?? ""
 
         let urlTrackingScript = WKUserScript(
             source: """
@@ -83,13 +97,66 @@ struct WebView: UIViewRepresentable {
         let script = WKUserScript(
             source: """
             (function() {
-                var savedUsername = '\(username)';
-                var savedPassword = '\(password)';
-                var usernameFieldName = '\(usernameFieldName)';
-                var passwordFieldName = '\(passwordFieldName)';
-                var captchaFieldName = '\(captchaFieldName)';
-                var captchaImageSelector = '\(captchaImageSelector)';
+                var savedUsername = \(Self.javaScriptStringLiteral(username));
+                var savedPassword = \(Self.javaScriptStringLiteral(password));
+                var usernameFieldName = \(Self.javaScriptStringLiteral(usernameFieldName));
+                var usernameFieldID = \(Self.javaScriptStringLiteral(usernameFieldID));
+                var passwordFieldName = \(Self.javaScriptStringLiteral(passwordFieldName));
+                var passwordFieldID = \(Self.javaScriptStringLiteral(passwordFieldID));
+                var captchaFieldName = \(Self.javaScriptStringLiteral(captchaFieldName));
+                var captchaFieldID = \(Self.javaScriptStringLiteral(captchaFieldID));
+                var captchaImageSelector = \(Self.javaScriptStringLiteral(captchaImageSelector));
+                var captchaImageType = \(Self.javaScriptStringLiteral(captchaImageType));
                 var hasTriggeredCaptchaRecognition = false;
+
+                function cssEscape(value) {
+                    if (window.CSS && CSS.escape) return CSS.escape(value);
+                    return String(value).replace(/["\\\\]/g, '\\\\$&');
+                }
+
+                function findInput(name, id) {
+                    var selectors = [];
+                    if (name) selectors.push('input[name="' + cssEscape(name) + '"]');
+                    if (id) selectors.push('input#' + cssEscape(id), 'input[id="' + cssEscape(id) + '"]');
+                    for (var i = 0; i < selectors.length; i++) {
+                        var field = document.querySelector(selectors[i]);
+                        if (field) return field;
+                    }
+                    return null;
+                }
+
+                function captchaImageCSSSelector() {
+                    if (!captchaImageSelector) return '';
+                    var escaped = cssEscape(captchaImageSelector);
+                    if (captchaImageType === 'class') return '.' + escaped;
+                    if (captchaImageType === 'id') return '#' + escaped;
+                    if (captchaImageType === 'name') return '[name="' + escaped + '"]';
+                    if (captchaImageSelector.charAt(0) === '.' || captchaImageSelector.charAt(0) === '#' || captchaImageSelector.charAt(0) === '[') {
+                        return captchaImageSelector;
+                    }
+                    return '';
+                }
+
+                function findCaptchaImage() {
+                    var explicitSelector = captchaImageCSSSelector();
+                    if (explicitSelector) {
+                        var explicit = document.querySelector(explicitSelector);
+                        if (explicit) return explicit;
+                    }
+
+                    if (captchaImageSelector) {
+                        var escaped = cssEscape(captchaImageSelector);
+                        var guessed = document.querySelector('.' + escaped) ||
+                                      document.querySelector('#' + escaped) ||
+                                      document.querySelector('[name="' + escaped + '"]');
+                        if (guessed) return guessed;
+                    }
+
+                    return document.querySelector('img[alt*="captcha"]') ||
+                           document.querySelector('img[alt*="驗證"]') ||
+                           document.querySelector('img[src*="captcha"]') ||
+                           document.querySelector('img[src*="code"]');
+                }
 
                 function getNativeValueSetter(element) {
                     var prototype = Object.getPrototypeOf(element);
@@ -128,33 +195,26 @@ struct WebView: UIViewRepresentable {
                 }
 
                 function fillCredentials() {
-                    var usernameField = document.querySelector('input[name="' + usernameFieldName + '"]') || document.querySelector('input[id="' + usernameFieldName + '"]');
+                    var usernameField = findInput(usernameFieldName, usernameFieldID);
                     if (usernameField && savedUsername && !usernameField.value) {
                         fillField(usernameField, savedUsername);
                     }
 
-                    var passwordField = document.querySelector('input[name="' + passwordFieldName + '"]') || document.querySelector('input[id="' + passwordFieldName + '"]');
+                    var passwordField = findInput(passwordFieldName, passwordFieldID);
                     if (passwordField && savedPassword && !passwordField.value) {
                         fillField(passwordField, savedPassword);
                     }
 
-                    var captchaField = captchaFieldName
-                        ? (document.querySelector('input[name="' + captchaFieldName + '"]') || document.querySelector('input[id="' + captchaFieldName + '"]'))
-                        : null;
+                    var captchaField = findInput(captchaFieldName, captchaFieldID);
                     if (captchaField && !captchaField.value && !hasTriggeredCaptchaRecognition) {
-                        var captchaImage = document.querySelector('.' + captchaImageSelector) ||
-                                          document.querySelector('#' + captchaImageSelector) ||
-                                          document.querySelector('[name="' + captchaImageSelector + '"]') ||
-                                          document.querySelector('img[alt*="captcha"]') ||
-                                          document.querySelector('img[alt*="驗證"]') ||
-                                          document.querySelector('img[src*="captcha"]') ||
-                                          document.querySelector('img[src*="code"]');
+                        var captchaImage = findCaptchaImage();
                         
                         if (captchaImage) {
                             hasTriggeredCaptchaRecognition = true;
                             console.log('🔍 找到驗證碼圖片，開始自動識別...');
                             window.webkit.messageHandlers.recognizeCaptcha.postMessage({
                                 selector: captchaImageSelector,
+                                type: captchaImageType,
                                 timestamp: Date.now()
                             });
                         }
@@ -162,9 +222,7 @@ struct WebView: UIViewRepresentable {
                 }
                 
                 window.fillCaptchaCode = function(code) {
-                    var captchaField = captchaFieldName
-                        ? (document.querySelector('input[name="' + captchaFieldName + '"]') || document.querySelector('input[id="' + captchaFieldName + '"]'))
-                        : null;
+                    var captchaField = findInput(captchaFieldName, captchaFieldID);
                     if (captchaField) {
                         fillField(captchaField, code);
                         console.log('✅ 已自動填寫驗證碼: ' + code);
@@ -185,21 +243,38 @@ struct WebView: UIViewRepresentable {
 
             document.addEventListener('click', function(e) {
                 var target = e.target;
-                var buttonClass = '\(buttonClass)';
-                var usernameFieldName = '\(usernameFieldName)';
-                var passwordFieldName = '\(passwordFieldName)';
-                var captchaFieldName = '\(captchaFieldName)';
+                var buttonClass = \(Self.javaScriptStringLiteral(buttonClass));
+                var usernameFieldName = \(Self.javaScriptStringLiteral(usernameFieldName));
+                var usernameFieldID = \(Self.javaScriptStringLiteral(usernameFieldID));
+                var passwordFieldName = \(Self.javaScriptStringLiteral(passwordFieldName));
+                var passwordFieldID = \(Self.javaScriptStringLiteral(passwordFieldID));
+                var captchaFieldName = \(Self.javaScriptStringLiteral(captchaFieldName));
+                var captchaFieldID = \(Self.javaScriptStringLiteral(captchaFieldID));
+
+                function cssEscape(value) {
+                    if (window.CSS && CSS.escape) return CSS.escape(value);
+                    return String(value).replace(/["\\\\]/g, '\\\\$&');
+                }
+
+                function findInput(name, id) {
+                    if (name) {
+                        var byName = document.querySelector('input[name="' + cssEscape(name) + '"]');
+                        if (byName) return byName;
+                    }
+                    if (id) {
+                        return document.querySelector('input#' + cssEscape(id)) || document.querySelector('input[id="' + cssEscape(id) + '"]');
+                    }
+                    return null;
+                }
                 
                 var isLoginButton = buttonClass
-                    ? (target.classList.contains(buttonClass) || target.closest('.' + buttonClass))
+                    ? (target.classList.contains(buttonClass) || target.closest('.' + cssEscape(buttonClass)))
                     : (target.matches('button, input[type="submit"]') || target.closest('button, input[type="submit"]'));
                 
                 if (isLoginButton) {
-                    var usernameField = document.querySelector('input[name="' + usernameFieldName + '"]') || document.querySelector('input[id="' + usernameFieldName + '"]');
-                    var passwordField = document.querySelector('input[name="' + passwordFieldName + '"]') || document.querySelector('input[id="' + passwordFieldName + '"]');
-                    var captchaField = captchaFieldName
-                        ? (document.querySelector('input[name="' + captchaFieldName + '"]') || document.querySelector('input[id="' + captchaFieldName + '"]'))
-                        : null;
+                    var usernameField = findInput(usernameFieldName, usernameFieldID);
+                    var passwordField = findInput(passwordFieldName, passwordFieldID);
+                    var captchaField = findInput(captchaFieldName, captchaFieldID);
                     
                     var username = usernameField ? usernameField.value : '';
                     var password = passwordField ? passwordField.value : '';
@@ -222,17 +297,36 @@ struct WebView: UIViewRepresentable {
 
             document.addEventListener('submit', function(e) {
                 var form = e.target;
-                var buttonClass = '\(buttonClass)';
-                var usernameFieldName = '\(usernameFieldName)';
-                var passwordFieldName = '\(passwordFieldName)';
-                var captchaFieldName = '\(captchaFieldName)';
+                var buttonClass = \(Self.javaScriptStringLiteral(buttonClass));
+                var usernameFieldName = \(Self.javaScriptStringLiteral(usernameFieldName));
+                var usernameFieldID = \(Self.javaScriptStringLiteral(usernameFieldID));
+                var passwordFieldName = \(Self.javaScriptStringLiteral(passwordFieldName));
+                var passwordFieldID = \(Self.javaScriptStringLiteral(passwordFieldID));
+                var captchaFieldName = \(Self.javaScriptStringLiteral(captchaFieldName));
+                var captchaFieldID = \(Self.javaScriptStringLiteral(captchaFieldID));
+
+                function cssEscape(value) {
+                    if (window.CSS && CSS.escape) return CSS.escape(value);
+                    return String(value).replace(/["\\\\]/g, '\\\\$&');
+                }
+
+                function findInput(root, name, id) {
+                    if (name) {
+                        var byName = root.querySelector('input[name="' + cssEscape(name) + '"]');
+                        if (byName) return byName;
+                    }
+                    if (id) {
+                        return root.querySelector('input#' + cssEscape(id)) || root.querySelector('input[id="' + cssEscape(id) + '"]');
+                    }
+                    return null;
+                }
                 
-                var loginBtn = form.querySelector('.' + buttonClass);
+                var loginBtn = buttonClass ? form.querySelector('.' + cssEscape(buttonClass)) : form.querySelector('button, input[type="submit"]');
                 if (!loginBtn) return;
 
-                var usernameField = form.querySelector('input[name="' + usernameFieldName + '"]') || form.querySelector('input[id="' + usernameFieldName + '"]');
-                var passwordField = form.querySelector('input[name="' + passwordFieldName + '"]') || form.querySelector('input[id="' + passwordFieldName + '"]');
-                var captchaField = form.querySelector('input[name="' + captchaFieldName + '"]') || form.querySelector('input[id="' + captchaFieldName + '"]');
+                var usernameField = findInput(form, usernameFieldName, usernameFieldID);
+                var passwordField = findInput(form, passwordFieldName, passwordFieldID);
+                var captchaField = findInput(form, captchaFieldName, captchaFieldID);
                 
                 var username = usernameField ? usernameField.value : '';
                 var password = passwordField ? passwordField.value : '';
@@ -318,15 +412,16 @@ struct WebView: UIViewRepresentable {
                     print("❌ [WebView] 驗證碼識別請求格式錯誤")
                     return
                 }
+                let selectorType = messageDict["type"] as? String
                 
-                print("🔍 [WebView] 收到驗證碼識別請求，選擇器: \(selector)")
+                print("🔍 [WebView] 收到驗證碼識別請求，選擇器: \(selector), type: \(selectorType ?? "auto")")
                 
                 DispatchQueue.main.async {
                     self.parent.isCaptchaRecognizing = true
                     NotificationCenter.default.post(name: .captchaRecognitionStarted, object: nil)
                 }
                 
-                CaptchaRecognizer.shared.recognizeCaptchaFromWebView(webView, captchaSelector: selector) { [weak self] recognizedText in
+                CaptchaRecognizer.shared.recognizeCaptchaFromWebView(webView, captchaSelector: selector, captchaSelectorType: selectorType) { [weak self] recognizedText in
                     DispatchQueue.main.async {
                         self?.parent.isCaptchaRecognizing = false
                         
@@ -341,7 +436,7 @@ struct WebView: UIViewRepresentable {
                         NotificationCenter.default.post(name: .captchaRecognitionCompleted, object: text)
                         
                         // 自動填寫識別到的驗證碼
-                        webView.evaluateJavaScript("window.fillCaptchaCode('\(text)')") { result, error in
+                        webView.evaluateJavaScript("window.fillCaptchaCode(\(WebView.javaScriptStringLiteral(text)))") { result, error in
                             if let error = error {
                                 print("❌ [WebView] 填寫驗證碼失敗: \(error)")
                             } else if let success = result as? Bool, success {
@@ -497,7 +592,7 @@ struct WebView: UIViewRepresentable {
                     }
                 }
 
-                if let error = error {
+                if error != nil {
                     return
                 }
 
