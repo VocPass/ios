@@ -131,18 +131,21 @@ struct ScoreView: View {
     // MARK: - Export
 
     private func renderExport() {
-        let yearTitle = yearTitle(for: selectedYear)
-        let content = IGStoryContainer {
-            ScoreExportContent(
-                gradeData: gradeData,
-                yearTitle: yearTitle
+        Task {
+            await ExportIconLoader.shared.preload()
+            let yearTitle = yearTitle(for: selectedYear)
+            let content = IGStoryContainer(iconImage: ExportIconLoader.shared.loadedImage) {
+                ScoreExportContent(
+                    gradeData: gradeData,
+                    yearTitle: yearTitle
+                )
+            }
+            exportImage = content.renderToImage(
+                size: IGStoryExport.size,
+                scale: 1.0
             )
+            showShareSheet = true
         }
-        exportImage = content.renderToImage(
-            size: IGStoryExport.size,
-            scale: 1.0
-        )
-        showShareSheet = true
     }
 
     private func yearTitle(for year: Int) -> String {
@@ -516,17 +519,20 @@ struct ExamScoreView: View {
 
     private func renderExport() {
         guard let exam = selectedExam else { return }
-        let content = IGStoryContainer {
-            ExamScoreExportContent(
-                examData: examData,
-                examName: exam.name
+        Task {
+            await ExportIconLoader.shared.preload()
+            let content = IGStoryContainer(iconImage: ExportIconLoader.shared.loadedImage) {
+                ExamScoreExportContent(
+                    examData: examData,
+                    examName: exam.name
+                )
+            }
+            exportImage = content.renderToImage(
+                size: IGStoryExport.size,
+                scale: 1.0
             )
+            showShareSheet = true
         }
-        exportImage = content.renderToImage(
-            size: IGStoryExport.size,
-            scale: 1.0
-        )
-        showShareSheet = true
     }
 
     private func loadMenu() async {
@@ -600,7 +606,7 @@ struct ExamSubjectRow: View {
     }
 }
 
-// MARK: - Score Export Content (flat, non-lazy layout for rendering)
+// MARK: - Score Export Content
 
 struct ScoreExportContent: View {
     let gradeData: GradeData
@@ -608,137 +614,131 @@ struct ScoreExportContent: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Header
-            VStack(alignment: .leading, spacing: 8) {
-                Text("學年成績")
-                    .font(.system(size: 52, weight: .bold))
-                Text(yearTitle)
-                    .font(.system(size: 28))
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, IGStoryExport.contentPadding)
-            .padding(.top, 80)
-            .padding(.bottom, 36)
+            ExportHeader("學年成績", subtitle: yearTitle)
 
-            Divider()
-                .padding(.horizontal, IGStoryExport.contentPadding)
-
-            ScrollView(.vertical) {
-                VStack(alignment: .leading, spacing: 28) {
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 36) {
                     // Student Info
                     if !gradeData.studentInfo.isEmpty {
-                        sectionTitle("學生資訊")
+                        ExportSectionHeader("學生資訊")
                         Text(gradeData.studentInfo)
-                            .font(.system(size: 22))
+                            .font(.system(size: 22, weight: .regular))
                             .foregroundStyle(.secondary)
                     }
 
                     // Subject Grades
                     if !gradeData.subjects.isEmpty {
-                        sectionTitle("科目成績")
+                        ExportSectionHeader("科目成績")
                         ForEach(gradeData.subjects) { subject in
-                            VStack(spacing: 8) {
-                                HStack {
-                                    Text(subject.subject)
-                                        .font(.system(size: 24, weight: .semibold))
-                                    Spacer()
-                                    Text(subject.yearGrade)
-                                        .font(.system(size: 24, weight: .bold))
-                                        .foregroundStyle(exportScoreColor(subject.yearGrade))
-                                }
-                                HStack(spacing: 16) {
-                                    Label("上: \(subject.firstSemester.score)", systemImage: "1.circle")
-                                        .font(.system(size: 18))
-                                        .foregroundStyle(.secondary)
-                                    Label("下: \(subject.secondSemester.score)", systemImage: "2.circle")
-                                        .font(.system(size: 18))
-                                        .foregroundStyle(.secondary)
-                                    Spacer()
+                            ExportCard {
+                                VStack(spacing: 16) {
+                                    HStack(alignment: .firstTextBaseline) {
+                                        Text(subject.subject)
+                                            .font(.system(size: 24, weight: .semibold))
+                                        Spacer()
+                                        Text(subject.yearGrade)
+                                            .font(.system(size: 36, weight: .bold, design: .monospaced))
+                                            .foregroundStyle(exportScoreColor(subject.yearGrade))
+                                    }
+                                    HStack(spacing: 32) {
+                                        semesterBadge("上學期", subject.firstSemester.score, subject.firstSemester.credit)
+                                        semesterBadge("下學期", subject.secondSemester.score, subject.secondSemester.credit)
+                                        Spacer()
+                                    }
                                 }
                             }
-                            .padding(18)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(Color(.secondarySystemBackground))
-                            )
                         }
                     }
 
                     // Total Scores
                     if !gradeData.totalScores.isEmpty {
-                        sectionTitle("總成績")
+                        ExportSectionHeader("總成績")
                         let keys = gradeData.totalScores.keys.sorted {
                             $0.localizedStandardCompare($1) == .orderedAscending
                         }
-                        ForEach(keys, id: \.self) { category in
-                            if let score = gradeData.totalScores[category] {
-                                VStack(spacing: 10) {
-                                    Text(category)
-                                        .font(.system(size: 22, weight: .semibold))
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                    HStack(spacing: 0) {
-                                        Text("上 \(score.firstSemester)")
-                                            .font(.system(size: 20))
-                                            .foregroundStyle(.secondary)
-                                            .frame(maxWidth: .infinity)
-                                        Text("下 \(score.secondSemester)")
-                                            .font(.system(size: 20))
-                                            .foregroundStyle(.secondary)
-                                            .frame(maxWidth: .infinity)
-                                        Text("學年 \(score.year)")
-                                            .font(.system(size: 21, weight: .semibold))
-                                            .frame(maxWidth: .infinity)
+                        VStack(spacing: 12) {
+                            ForEach(keys, id: \.self) { category in
+                                if let score = gradeData.totalScores[category] {
+                                    ExportCard {
+                                        HStack(alignment: .firstTextBaseline) {
+                                            Text(category)
+                                                .font(.system(size: 20, weight: .semibold))
+                                            Spacer()
+                                            Text(score.firstSemester)
+                                                .font(.system(size: 17, weight: .medium, design: .monospaced))
+                                                .foregroundStyle(.secondary)
+                                            Text("·")
+                                                .foregroundStyle(.tertiary)
+                                            Text(score.secondSemester)
+                                                .font(.system(size: 17, weight: .medium, design: .monospaced))
+                                                .foregroundStyle(.secondary)
+                                            Text("·")
+                                                .foregroundStyle(.tertiary)
+                                            Text(score.year)
+                                                .font(.system(size: 22, weight: .bold, design: .monospaced))
+                                                .foregroundStyle(BrandColors.blue)
+                                        }
                                     }
                                 }
-                                .padding(18)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 12)
-                                        .fill(Color(.secondarySystemBackground))
-                                )
                             }
                         }
                     }
 
                     // Daily Performance
                     if !gradeData.dailyPerformance.isEmpty {
-                        sectionTitle("日常生活表現")
+                        ExportSectionHeader("日常生活表現")
                         let perfKeys = orderedPerfKeys()
                         ForEach(perfKeys, id: \.self) { key in
                             if let perf = gradeData.dailyPerformance[key],
                                !perf.isCompletelyEmpty {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Text(key == "first_semester" ? "上學期" : "下學期")
-                                        .font(.system(size: 22, weight: .semibold))
-                                    if !cleaned(perf.evaluation).isEmpty {
-                                        perfRow("日常評量", cleaned(perf.evaluation))
-                                    }
-                                    if !cleaned(perf.description).isEmpty {
-                                        perfRow("描述", cleaned(perf.description))
-                                    }
-                                    if !cleaned(perf.serviceHours).isEmpty {
-                                        perfRow("服務學習", cleaned(perf.serviceHours))
-                                    }
-                                    if !cleaned(perf.specialPerformance).isEmpty {
-                                        perfRow("特殊表現", cleaned(perf.specialPerformance))
-                                    }
-                                    if !cleaned(perf.suggestions).isEmpty {
-                                        perfRow("建議與評語", cleaned(perf.suggestions))
-                                    }
-                                    if !cleaned(perf.others).isEmpty {
-                                        perfRow("其他", cleaned(perf.others))
+                                ExportCard {
+                                    VStack(alignment: .leading, spacing: 12) {
+                                        Text(key == "first_semester" ? "上學期" : "下學期")
+                                            .font(.system(size: 18, weight: .semibold))
+                                        if !cleaned(perf.evaluation).isEmpty {
+                                            perfRow("日常評量", cleaned(perf.evaluation))
+                                        }
+                                        if !cleaned(perf.description).isEmpty {
+                                            perfRow("描述", cleaned(perf.description))
+                                        }
+                                        if !cleaned(perf.serviceHours).isEmpty {
+                                            perfRow("服務學習", cleaned(perf.serviceHours))
+                                        }
+                                        if !cleaned(perf.specialPerformance).isEmpty {
+                                            perfRow("特殊表現", cleaned(perf.specialPerformance))
+                                        }
+                                        if !cleaned(perf.suggestions).isEmpty {
+                                            perfRow("建議與評語", cleaned(perf.suggestions))
+                                        }
+                                        if !cleaned(perf.others).isEmpty {
+                                            perfRow("其他", cleaned(perf.others))
+                                        }
                                     }
                                 }
-                                .padding(18)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 12)
-                                        .fill(Color(.secondarySystemBackground))
-                                )
                             }
                         }
                     }
                 }
-                .padding(IGStoryExport.contentPadding)
-                .padding(.bottom, 24)
+                .padding(.horizontal, IGStoryExport.padding)
+                .padding(.bottom, 40)
+            }
+        }
+    }
+
+    private func semesterBadge(_ label: String, _ score: String, _ credit: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Color(.systemGray))
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(score)
+                    .font(.system(size: 20, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(exportScoreColor(score))
+                Text("·")
+                    .foregroundStyle(.tertiary)
+                Text("\(credit) 學分")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -746,44 +746,21 @@ struct ScoreExportContent: View {
     private func orderedPerfKeys() -> [String] {
         let preferred = ["first_semester", "second_semester"]
         let existing = Set(gradeData.dailyPerformance.keys)
-        return preferred.filter { existing.contains($0) }
-            + existing.subtracting(preferred).sorted()
-    }
-
-    private func sectionTitle(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 30, weight: .bold))
-            .padding(.top, 8)
+        return preferred.filter { existing.contains($0) } + existing.subtracting(preferred).sorted()
     }
 
     private func perfRow(_ label: String, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label)
-                .font(.system(size: 16))
-                .foregroundStyle(.secondary)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Color(.systemGray))
             Text(value)
-                .font(.system(size: 20))
+                .font(.system(size: 18, weight: .regular))
         }
     }
 
     private func cleaned(_ text: String) -> String {
-        text
-            .replacingOccurrences(of: "<br/>", with: "\n")
-            .replacingOccurrences(of: "<br />", with: "\n")
-            .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
-            .replacingOccurrences(of: "&nbsp;", with: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private func exportScoreColor(_ score: String) -> Color {
-        guard let v = Double(score) else { return .primary }
-        let p = Double(CacheService.shared.passingScore)
-        switch v {
-        case 90...100: return .green
-        case 80..<90: return .blue
-        case p..<80: return .primary
-        default: return .red
-        }
+        exportCleanedHTML(text)
     }
 }
 
@@ -795,70 +772,55 @@ struct ExamScoreExportContent: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("考試成績")
-                    .font(.system(size: 52, weight: .bold))
-                Text(examName)
-                    .font(.system(size: 28))
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, IGStoryExport.contentPadding)
-            .padding(.top, 80)
-            .padding(.bottom, 36)
+            ExportHeader("考試成績", subtitle: examName)
 
-            Divider()
-                .padding(.horizontal, IGStoryExport.contentPadding)
-
-            ScrollView(.vertical) {
-                VStack(alignment: .leading, spacing: 28) {
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 36) {
                     if !examData.examInfo.isEmpty {
+                        ExportSectionHeader("考試資訊")
                         Text(examData.examInfo)
-                            .font(.system(size: 20))
+                            .font(.system(size: 20, weight: .regular))
                             .foregroundStyle(.secondary)
                     }
 
                     if !examData.subjects.isEmpty {
-                        Text("成績明細")
-                            .font(.system(size: 30, weight: .bold))
-                        ForEach(examData.subjects) { subject in
-                            HStack {
-                                Text(subject.subject)
-                                    .font(.system(size: 22))
-                                Spacer()
-                                VStack(alignment: .trailing, spacing: 4) {
-                                    Text(subject.personalScore)
-                                        .font(.system(size: 22, weight: .bold))
-                                        .foregroundStyle(exportScoreColor(subject.personalScore))
-                                    Text("班平均: \(subject.classAverage)")
-                                        .font(.system(size: 16))
-                                        .foregroundStyle(.secondary)
+                        ExportSectionHeader("成績明細")
+                        VStack(spacing: 10) {
+                            ForEach(examData.subjects) { subject in
+                                ExportCard {
+                                    HStack(alignment: .firstTextBaseline) {
+                                        Text(subject.subject)
+                                            .font(.system(size: 22, weight: .medium))
+                                        Spacer()
+                                        VStack(alignment: .trailing, spacing: 4) {
+                                            Text(subject.personalScore)
+                                                .font(.system(size: 28, weight: .bold, design: .monospaced))
+                                                .foregroundStyle(exportScoreColor(subject.personalScore))
+                                            Text("班平均 \(subject.classAverage)")
+                                                .font(.system(size: 14))
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
                                 }
                             }
-                            .padding(18)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(Color(.secondarySystemBackground))
-                            )
                         }
                     }
 
-                    Text("統計")
-                        .font(.system(size: 30, weight: .bold))
-
-                    VStack(spacing: 14) {
-                        statRow("總分", examData.summary.totalScore)
-                        statRow("平均", examData.summary.averageScore)
-                        statRow("班級排名", examData.summary.classRank)
-                        statRow("科別排名", examData.summary.departmentRank)
+                    ExportSectionHeader("統計")
+                    ExportCard {
+                        VStack(spacing: 16) {
+                            statRow("總分", examData.summary.totalScore)
+                            Divider()
+                            statRow("平均", examData.summary.averageScore)
+                            Divider()
+                            statRow("班級排名", examData.summary.classRank)
+                            Divider()
+                            statRow("科別排名", examData.summary.departmentRank)
+                        }
                     }
-                    .padding(18)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Color(.secondarySystemBackground))
-                    )
                 }
-                .padding(IGStoryExport.contentPadding)
-                .padding(.bottom, 24)
+                .padding(.horizontal, IGStoryExport.padding)
+                .padding(.bottom, 40)
             }
         }
     }
@@ -866,22 +828,11 @@ struct ExamScoreExportContent: View {
     private func statRow(_ label: String, _ value: String) -> some View {
         HStack {
             Text(label)
-                .font(.system(size: 22))
+                .font(.system(size: 20, weight: .regular))
                 .foregroundStyle(.secondary)
             Spacer()
             Text(value)
-                .font(.system(size: 22, weight: .semibold))
-        }
-    }
-
-    private func exportScoreColor(_ score: String) -> Color {
-        guard let v = Double(score) else { return .primary }
-        let p = Double(CacheService.shared.passingScore)
-        switch v {
-        case 90...100: return .green
-        case 80..<90: return .blue
-        case p..<80: return .primary
-        default: return .red
+                .font(.system(size: 22, weight: .semibold, design: .monospaced))
         }
     }
 }

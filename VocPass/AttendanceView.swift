@@ -138,18 +138,21 @@ struct AttendanceView: View {
     // MARK: - Export
 
     private func renderExport() {
-        let content = IGStoryContainer {
-            AttendanceExportContent(
-                statistics: statistics,
-                subjectAbsences: subjectAbsences,
-                allRecords: allRecords
+        Task {
+            await ExportIconLoader.shared.preload()
+            let content = IGStoryContainer(iconImage: ExportIconLoader.shared.loadedImage) {
+                AttendanceExportContent(
+                    statistics: statistics,
+                    subjectAbsences: subjectAbsences,
+                    allRecords: allRecords
+                )
+            }
+            exportImage = content.renderToImage(
+                size: IGStoryExport.size,
+                scale: 1.0
             )
+            showShareSheet = true
         }
-        exportImage = content.renderToImage(
-            size: IGStoryExport.size,
-            scale: 1.0
-        )
-        showShareSheet = true
     }
 
     private var statisticsOverview: some View {
@@ -432,202 +435,193 @@ struct AttendanceExportContent: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("缺曠統計")
-                    .font(.system(size: 52, weight: .bold))
-                if !statistics.statisticsDate.isEmpty {
-                    Text(statistics.statisticsDate)
-                        .font(.system(size: 24))
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .padding(.horizontal, IGStoryExport.contentPadding)
-            .padding(.top, 80)
-            .padding(.bottom, 36)
+            ExportHeader("缺曠統計",
+                         subtitle: statistics.statisticsDate.isEmpty ? nil : statistics.statisticsDate)
 
-            Divider()
-                .padding(.horizontal, IGStoryExport.contentPadding)
-
-            ScrollView(.vertical) {
-                VStack(alignment: .leading, spacing: 28) {
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 36) {
                     // Overview
-                    sectionTitle("缺曠總覽")
+                    ExportSectionHeader("缺曠總覽")
 
-                    // First semester
                     if !statistics.firstSemester.isEmpty {
                         semesterSection("上學期", data: statistics.firstSemester)
                     }
 
-                    // Second semester
                     if !statistics.secondSemester.isEmpty {
                         semesterSection("下學期", data: statistics.secondSemester)
                     }
 
                     // Total
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("全部合計")
-                            .font(.system(size: 22, weight: .semibold))
-                        HStack(spacing: 12) {
-                            miniStatCard("曠課", "\(statistics.total.truancy)", .red)
-                            miniStatCard("事假", "\(statistics.total.personalLeave)", .orange)
-                            miniStatCard("病假", "\(statistics.total.sickLeave)", .blue)
-                            miniStatCard("公假", "\(statistics.total.officialLeave)", .green)
+                    ExportCard {
+                        VStack(alignment: .leading, spacing: 16) {
+                            Text("全部合計")
+                                .font(.system(size: 18, weight: .semibold))
+                            HStack(spacing: 16) {
+                                miniStat("曠課", statistics.total.truancy, .red)
+                                miniStat("事假", statistics.total.personalLeave, .orange)
+                                miniStat("病假", statistics.total.sickLeave, BrandColors.blue)
+                                miniStat("公假", statistics.total.officialLeave, .green)
+                            }
                         }
                     }
-                    .padding(18)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Color(.secondarySystemBackground))
-                    )
 
-                    // Subject absence summary
+                    // Subject absences
                     let visible = subjectAbsences.filter { $0.truancy + $0.personalLeave > 0 }
                     if !visible.isEmpty {
-                        sectionTitle("各科缺曠統計")
-                        ForEach(visible) { absence in
-                            VStack(alignment: .leading, spacing: 8) {
-                                HStack {
-                                    Text(absence.subject)
-                                        .font(.system(size: 22, weight: .semibold))
-                                    Spacer()
-                                    Text("\(absence.percentage)%")
-                                        .font(.system(size: 18, weight: .bold))
-                                        .foregroundStyle(absencePercentageColor(absence.percentage))
-                                        .padding(.horizontal, 10)
-                                        .padding(.vertical, 4)
-                                        .background(absencePercentageColor(absence.percentage).opacity(0.1))
-                                        .cornerRadius(6)
-                                }
-                                HStack(spacing: 16) {
-                                    Label("\(absence.truancy)", systemImage: "xmark.circle")
-                                        .font(.system(size: 18))
-                                        .foregroundStyle(.red)
-                                    Label("\(absence.personalLeave)", systemImage: "calendar.badge.minus")
-                                        .font(.system(size: 18))
-                                        .foregroundStyle(.orange)
-                                    Text("總計: \(absence.total) / \(absence.totalClasses)")
-                                        .font(.system(size: 16))
-                                        .foregroundStyle(.secondary)
+                        ExportSectionHeader("各科缺曠統計")
+                        VStack(spacing: 10) {
+                            ForEach(visible) { absence in
+                                ExportCard {
+                                    VStack(alignment: .leading, spacing: 12) {
+                                        HStack {
+                                            Text(absence.subject)
+                                                .font(.system(size: 22, weight: .semibold))
+                                            Spacer()
+                                            Text("\(absence.percentage)%")
+                                                .font(.system(size: 18, weight: .bold, design: .monospaced))
+                                                .foregroundStyle(absencePctColor(absence.percentage))
+                                                .padding(.horizontal, 12)
+                                                .padding(.vertical, 6)
+                                                .background(
+                                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                                        .fill(absencePctColor(absence.percentage).opacity(0.1))
+                                                )
+                                        }
+                                        HStack(spacing: 20) {
+                                            Label("曠課 \(absence.truancy)", systemImage: "xmark")
+                                                .font(.system(size: 16))
+                                                .foregroundStyle(.red)
+                                            Label("事假 \(absence.personalLeave)", systemImage: "minus")
+                                                .font(.system(size: 16))
+                                                .foregroundStyle(.orange)
+                                            Spacer()
+                                            Text("\(absence.total) / \(absence.totalClasses)")
+                                                .font(.system(size: 14))
+                                                .foregroundStyle(.secondary)
+                                        }
+                                        // Progress bar
+                                        GeometryReader { geo in
+                                            ZStack(alignment: .leading) {
+                                                RoundedRectangle(cornerRadius: 2)
+                                                    .fill(Color(.systemGray5))
+                                                    .frame(height: 4)
+                                                RoundedRectangle(cornerRadius: 2)
+                                                    .fill(absencePctColor(absence.percentage))
+                                                    .frame(width: geo.size.width * CGFloat(absence.percentage) / 100, height: 4)
+                                            }
+                                        }
+                                        .frame(height: 4)
+                                    }
                                 }
                             }
-                            .padding(18)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(Color(.secondarySystemBackground))
-                            )
                         }
                     }
 
                     // Recent records
                     if !allRecords.isEmpty {
-                        sectionTitle("近期缺曠明細")
-                        let recent = Array(allRecords.prefix(15))
-                        ForEach(recent) { record in
-                            HStack(spacing: 12) {
-                                Text(getStatusEmoji(record.status))
-                                    .font(.system(size: 24))
-                                    .frame(width: 44, height: 44)
-                                    .background(absenceStatusColor(record.status).opacity(0.12))
-                                    .cornerRadius(10)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    HStack {
-                                        Text(record.date)
-                                            .font(.system(size: 20, weight: .medium))
-                                        if !record.weekday.isEmpty {
-                                            Text(record.weekday)
-                                                .font(.system(size: 16))
-                                                .foregroundStyle(.secondary)
+                        ExportSectionHeader("近期缺曠明細")
+                        let recent = Array(allRecords.prefix(12))
+                        VStack(spacing: 8) {
+                            ForEach(recent) { record in
+                                HStack(spacing: 14) {
+                                    statusBadge(record.status)
+
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        HStack(spacing: 8) {
+                                            Text(record.date)
+                                                .font(.system(size: 20, weight: .medium))
+                                            if !record.weekday.isEmpty {
+                                                Text(record.weekday)
+                                                    .font(.system(size: 16))
+                                                    .foregroundStyle(.secondary)
+                                            }
                                         }
+                                        Text("\(record.academicYear)學期  ·  第\(record.period)節")
+                                            .font(.system(size: 14))
+                                            .foregroundStyle(.secondary)
                                     }
-                                    Text("\(record.academicYear)學期 第\(record.period)節 · \(record.status)")
-                                        .font(.system(size: 16))
-                                        .foregroundStyle(.secondary)
+                                    Spacer()
                                 }
-                                Spacer()
+                                .padding(16)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                        .fill(Color(.secondarySystemBackground))
+                                )
                             }
-                            .padding(14)
-                            .background(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .fill(Color(.secondarySystemBackground))
-                            )
                         }
                     }
                 }
-                .padding(IGStoryExport.contentPadding)
-                .padding(.bottom, 24)
+                .padding(.horizontal, IGStoryExport.padding)
+                .padding(.bottom, 40)
             }
         }
     }
 
-    private func sectionTitle(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 30, weight: .bold))
-            .padding(.top, 8)
+    private func statusBadge(_ status: String) -> some View {
+        let color = absenceStatusColor(status)
+        return Text(status)
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(color)
+            )
     }
 
     private func semesterSection(_ title: String, data: [String: String]) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("\(title)合計")
-                .font(.system(size: 22, weight: .semibold))
-            HStack(spacing: 12) {
-                let truancy = Int(data["曠課"] ?? "0") ?? 0
-                let personal = (Int(data["事假"] ?? "0") ?? 0) + (Int(data["事假1"] ?? "0") ?? 0)
-                let sick = (Int(data["病假"] ?? "0") ?? 0) + (Int(data["病假1"] ?? "0") ?? 0) + (Int(data["病假2"] ?? "0") ?? 0)
-                let official = Int(data["公假"] ?? "0") ?? 0
-                miniStatCard("曠課", "\(truancy)", .red)
-                miniStatCard("事假", "\(personal)", .orange)
-                miniStatCard("病假", "\(sick)", .blue)
-                miniStatCard("公假", "\(official)", .green)
+        let truancy = Int(data["曠課"] ?? "0") ?? 0
+        let personal = (Int(data["事假"] ?? "0") ?? 0) + (Int(data["事假1"] ?? "0") ?? 0)
+        let sick = (Int(data["病假"] ?? "0") ?? 0) + (Int(data["病假1"] ?? "0") ?? 0) + (Int(data["病假2"] ?? "0") ?? 0)
+        let official = Int(data["公假"] ?? "0") ?? 0
+
+        return ExportCard {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("\(title)合計")
+                    .font(.system(size: 18, weight: .semibold))
+                HStack(spacing: 16) {
+                    miniStat("曠課", truancy, .red)
+                    miniStat("事假", personal, .orange)
+                    miniStat("病假", sick, BrandColors.blue)
+                    miniStat("公假", official, .green)
+                }
             }
         }
-        .padding(18)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color(.secondarySystemBackground))
-        )
     }
 
-    private func miniStatCard(_ title: String, _ value: String, _ color: Color) -> some View {
-        VStack(spacing: 4) {
-            Text(value)
-                .font(.system(size: 24, weight: .bold))
+    private func miniStat(_ label: String, _ value: Int, _ color: Color) -> some View {
+        VStack(spacing: 6) {
+            Text("\(value)")
+                .font(.system(size: 28, weight: .bold, design: .monospaced))
                 .foregroundStyle(color)
-            Text(title)
-                .font(.system(size: 16))
+            Text(label)
+                .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 10)
-        .background(color.opacity(0.1))
-        .cornerRadius(8)
-    }
-
-    private func getStatusEmoji(_ status: String) -> String {
-        switch status {
-        case "曠", "曠課": return "🚫"
-        case "事", "事假": return "📋"
-        case "病", "病假": return "🤒"
-        case "公", "公假": return "📜"
-        default: return "📌"
-        }
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(color.opacity(0.08))
+        )
     }
 
     private func absenceStatusColor(_ status: String) -> Color {
         switch status {
         case "曠", "曠課": return .red
         case "事", "事假": return .orange
-        case "病", "病假": return .blue
+        case "病", "病假": return BrandColors.blue
         case "公", "公假": return .green
         default: return .gray
         }
     }
 
-    private func absencePercentageColor(_ percentage: Int) -> Color {
-        let limit = 33
-        if percentage >= limit { return .red }
-        else if percentage >= limit * 3 / 4 { return .orange }
-        else if percentage >= limit / 2 { return .yellow }
-        else { return .green }
+    private func absencePctColor(_ pct: Int) -> Color {
+        if pct >= 33 { return .red }
+        if pct >= 24 { return .orange }
+        if pct >= 16 { return .yellow }
+        return .green
     }
 }
 
