@@ -19,6 +19,12 @@ struct WebView: UIViewRepresentable {
     @State private var isCaptchaRecognizing = false
     @State private var lastRecognizedCaptcha: String?
 
+    private struct UserAgentResponse: Decodable {
+        let code: Int
+        let message: String?
+        let data: String?
+    }
+
     private var savedUsername: String? { CacheService.shared.savedUsername }
     private var savedPassword: String? { CacheService.shared.savedPassword }
 
@@ -354,7 +360,7 @@ struct WebView: UIViewRepresentable {
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = context.coordinator
         context.coordinator.currentWebView = webView
-        webView.load(URLRequest(url: url))
+        context.coordinator.loadInitialPage(on: webView, url: url, school: school)
 
         return webView
     }
@@ -365,6 +371,7 @@ struct WebView: UIViewRepresentable {
         var parent: WebView
         private var hasLoggedIn = false
         var currentWebView: WKWebView?
+        private var didLoadInitialPage = false
 
         private let defaultLoginSuccessKeywords = [
             "登出", "logout"
@@ -379,6 +386,51 @@ struct WebView: UIViewRepresentable {
 
         init(_ parent: WebView) {
             self.parent = parent
+        }
+
+        func loadInitialPage(on webView: WKWebView, url: URL, school: SchoolConfig) {
+            guard !didLoadInitialPage else { return }
+            didLoadInitialPage = true
+
+            Task { [weak webView] in
+                let userAgent = await Self.fetchUserAgent(for: school)
+                await MainActor.run {
+                    guard let webView else { return }
+                    if let userAgent, !userAgent.isEmpty {
+                        webView.customUserAgent = userAgent
+                        print("🌐 [WebView] 已套用自訂 UA")
+                    } else {
+                        print("⚠️ [WebView] 取得 UA 失敗，改用系統預設 UA")
+                    }
+                    webView.load(URLRequest(url: url))
+                }
+            }
+        }
+
+        private static func fetchUserAgent(for school: SchoolConfig) async -> String? {
+            guard let url = URL(string: "\(AppConfig.vocPassAPIHost)/api/\(school.vision)/ua") else {
+                return nil
+            }
+
+            do {
+                let (data, response) = try await URLSession.shared.data(from: url)
+                guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+                    return nil
+                }
+
+                let decoded = try JSONDecoder().decode(UserAgentResponse.self, from: data)
+                guard decoded.code == 200 else {
+                    if let message = decoded.message, !message.isEmpty {
+                        print("⚠️ [WebView] UA API 回傳非成功狀態: \(message)")
+                    }
+                    return nil
+                }
+
+                return decoded.data?.trimmingCharacters(in: .whitespacesAndNewlines)
+            } catch {
+                print("⚠️ [WebView] 取得 UA 失敗: \(error)")
+                return nil
+            }
         }
 
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
