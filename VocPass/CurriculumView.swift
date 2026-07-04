@@ -20,10 +20,6 @@ struct CurriculumView: View {
     // 分享
     @State private var showShareSheet = false
 
-    // 匯出圖片
-    @State private var showExportSheet = false
-    @State private var exportImage: ExportImage?
-
     // 手動輸入科目
     @State private var manualCurriculum: [String: String] = CacheService.shared.manualCurriculum
     @State private var manualRoomTeacher: [String: CourseExtra] = CacheService.shared.manualRoomTeacher
@@ -126,11 +122,6 @@ struct CurriculumView: View {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     HStack(spacing: 4) {
                         Button {
-                            renderExport()
-                        } label: {
-                            Image(systemName: "square.and.arrow.up")
-                        }
-                        Button {
                             showShareSheet = true
                         } label: {
                             Image(systemName: "person.2.wave.2")
@@ -153,14 +144,6 @@ struct CurriculumView: View {
                 .presentationDetents([.medium])
                 .presentationDragIndicator(.visible)
             }
-            #if canImport(UIKit)
-            .sheet(isPresented: $showExportSheet) {
-                if let image = exportImage {
-                    ShareSheet(image: image)
-                        .presentationDetents([.medium, .large])
-                }
-            }
-            #endif
             .sheet(isPresented: Binding(
                 get: { editingPeriod != nil },
                 set: { if !$0 { editingPeriod = nil } }
@@ -341,28 +324,6 @@ struct CurriculumView: View {
 
     private func effectivePeriodTime(for period: String) -> PeriodTime? {
         manualPeriodTimes[period] ?? apiPeriodTimes[period]
-    }
-
-    // MARK: - Export
-
-    private func renderExport() {
-        Task {
-            await ExportIconLoader.shared.preload()
-            let content = IGStoryContainer(iconImage: ExportIconLoader.shared.loadedImage) {
-                CurriculumExportContent(
-                    curriculum: curriculum,
-                    manualCurriculum: manualCurriculum,
-                    manualRoomTeacher: manualRoomTeacher,
-                    weekdays: weekdays,
-                    periods: periods
-                )
-            }
-            exportImage = content.renderToImage(
-                size: IGStoryExport.size,
-                scale: 1.0
-            )
-            showExportSheet = true
-        }
     }
 
     private func refreshDynamicIslandTimes() {
@@ -959,132 +920,6 @@ private struct BulletRow: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
-    }
-}
-
-// MARK: - Curriculum Export Content
-
-struct CurriculumExportContent: View {
-    let curriculum: [String: CourseInfo]
-    let manualCurriculum: [String: String]
-    let manualRoomTeacher: [String: CourseExtra]
-    let weekdays: [String]
-    let periods: [String]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ExportHeader("課表", subtitle: "\(weekdays.count) 天 · \(periods.count) 節")
-
-            gridView
-                .padding(.horizontal, IGStoryExport.padding)
-                .padding(.top, 12)
-
-            Spacer(minLength: 0)
-        }
-    }
-
-    private var gridView: some View {
-        let labelWidth: CGFloat = 48
-        let gridPadding: CGFloat = 0
-        let colWidth: CGFloat = (IGStoryExport.size.width - IGStoryExport.padding * 2 - gridPadding * 2 - labelWidth) / CGFloat(weekdays.count)
-        let rowHeight: CGFloat = min(84, max(68, 1500 / CGFloat(max(periods.count, 1))))
-
-        return VStack(spacing: 1) {
-            // Header
-            HStack(spacing: 1) {
-                // Empty corner
-                Rectangle()
-                    .fill(Color(.systemBackground))
-                    .frame(width: labelWidth, height: 40)
-
-                ForEach(weekdays, id: \.self) { day in
-                    Text("週\(day)")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: colWidth, height: 40)
-                        .background(Color(.systemGray6))
-                }
-            }
-
-            ForEach(periods, id: \.self) { period in
-                HStack(spacing: 1) {
-                    Text(period == "早讀" ? "早" : period)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.tertiary)
-                        .frame(width: labelWidth, height: rowHeight)
-                        .background(Color(.systemBackground))
-
-                    ForEach(weekdays, id: \.self) { day in
-                        let subject = getSubject(weekday: day, period: period)
-                        let extra = getExtra(weekday: day, period: period)
-                        let meta = [extra.room, extra.teacher]
-                            .filter { !$0.isEmpty }.joined(separator: " · ")
-
-                        VStack(spacing: 4) {
-                            if !subject.isEmpty {
-                                Text(subject)
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .lineLimit(2)
-                                    .multilineTextAlignment(.center)
-                                    .foregroundStyle(.primary)
-                            }
-                            if !meta.isEmpty {
-                                Text(meta)
-                                    .font(.system(size: 10, weight: .regular))
-                                    .foregroundStyle(.tertiary)
-                                    .lineLimit(2)
-                                    .multilineTextAlignment(.center)
-                            }
-                        }
-                        .frame(width: colWidth, height: rowHeight)
-                        .background(
-                            subject.isEmpty
-                                ? Color(.systemBackground)
-                                : subjectColor(subject).opacity(0.10)
-                        )
-                    }
-                }
-            }
-        }
-        .background(Color(.separator).opacity(0.3))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color(.separator).opacity(0.3), lineWidth: 0.5)
-        )
-    }
-
-    private func manualKey(_ w: String, _ p: String) -> String { "\(w)|\(p)" }
-
-    private func apiSubject(weekday: String, period: String) -> String {
-        for (subject, info) in curriculum {
-            for s in info.schedule where s.weekday == weekday && s.period == period {
-                return subject
-            }
-        }
-        return ""
-    }
-
-    private func apiExtra(weekday: String, period: String) -> CourseExtra {
-        for (_, info) in curriculum {
-            for s in info.schedule where s.weekday == weekday && s.period == period {
-                return CourseExtra(room: s.room ?? "", teacher: s.teacher ?? "")
-            }
-        }
-        return CourseExtra(room: "", teacher: "")
-    }
-
-    private func getSubject(weekday: String, period: String) -> String {
-        manualCurriculum[manualKey(weekday, period)] ?? apiSubject(weekday: weekday, period: period)
-    }
-
-    private func getExtra(weekday: String, period: String) -> CourseExtra {
-        manualRoomTeacher[manualKey(weekday, period)] ?? apiExtra(weekday: weekday, period: period)
-    }
-
-    private func subjectColor(_ subject: String) -> Color {
-        let colors: [Color] = [.blue, .green, .orange, .purple, .pink, .cyan, .mint, .indigo]
-        return colors[abs(subject.hashValue) % colors.count]
     }
 }
 
