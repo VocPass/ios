@@ -9,7 +9,7 @@ import WidgetKit
 
 // MARK: - Shared App Group Key
 
-private let kAppGroupID = "group.com.08hans.VocPass"
+private let kAppGroupID = "group.me.hans0805.VocPass"
 
 // MARK: - Widget-local Model Types
 

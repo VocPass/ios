@@ -365,7 +365,7 @@
 				INFOPLIST_FILE = VocPassWidget/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.08hans.VocPass.widget;
+				PRODUCT_BUNDLE_IDENTIFIER = me.hans0805.VocPass.widget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
@@ -530,7 +530,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.7;
-				PRODUCT_BUNDLE_IDENTIFIER = com.08hans.VocPass;
+				PRODUCT_BUNDLE_IDENTIFIER = me.hans0805.VocPass;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -575,7 +575,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.7;
-				PRODUCT_BUNDLE_IDENTIFIER = com.08hans.VocPass;
+				PRODUCT_BUNDLE_IDENTIFIER = me.hans0805.VocPass;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -601,13 +601,13 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = VocPassWatch;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
-				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.08hans.VocPass;
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = me.hans0805.VocPass;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.08hans.VocPass.watchkitapp;
+				PRODUCT_BUNDLE_IDENTIFIER = me.hans0805.VocPass.watchkitapp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
@@ -634,13 +634,13 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = VocPassWatch;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
-				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.08hans.VocPass;
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = me.hans0805.VocPass;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.08hans.VocPass.watchkitapp;
+				PRODUCT_BUNDLE_IDENTIFIER = me.hans0805.VocPass.watchkitapp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
@@ -666,7 +666,7 @@
 				INFOPLIST_FILE = VocPassWidget/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.08hans.VocPass.widget;
+				PRODUCT_BUNDLE_IDENTIFIER = me.hans0805.VocPass.widget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;

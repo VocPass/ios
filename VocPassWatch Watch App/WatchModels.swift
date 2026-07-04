@@ -58,7 +58,7 @@ struct TimetableData: Codable {
 
 // MARK: - Watch App Group Keys
 
-let kWatchAppGroupID = "group.com.08hans.VocPass"
+let kWatchAppGroupID = "group.me.hans0805.VocPass"
 
 enum WatchCacheKey: String {
     case timetable           = "cached_timetable"

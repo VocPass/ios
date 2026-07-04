@@ -8,7 +8,7 @@
 import Foundation
 import WidgetKit
 
-let kSharedAppGroupID = "group.com.08hans.VocPass"
+let kSharedAppGroupID = "group.me.hans0805.VocPass"
 
 class CacheService {
     static let shared = CacheService()

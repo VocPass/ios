@@ -11,7 +11,7 @@ import Combine
 import Foundation
 import UIKit
 
-let kDIBGTaskID = "com.08hans.VocPass.liveActivity"
+let kDIBGTaskID = "me.hans0805.VocPass.liveActivity"
 
 @MainActor
 final class DynamicIslandService: ObservableObject {
