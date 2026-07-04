@@ -1116,6 +1116,23 @@ class APIService: ObservableObject {
         try await fetchForumAdminInfo(school: "vocpass")
     }
 
+    /// 檢查使用者是否已加入論壇 beta。回傳 200 代表已加入，其餘代表尚未加入。
+    func checkForumBetaJoined(userID: String) async throws -> Bool {
+        let encodedUserID = userID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? userID
+        guard let url = URL(string: "\(AppConfig.vocPassAPIHost)/api/forum_beta/\(encodedUserID)") else {
+            throw URLError(.badURL)
+        }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "GET"
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        try? VocPassAuthService.shared.applyAuth(to: &req)
+
+        let (_, response) = try await urlSession.data(for: req)
+        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+        return statusCode == 200
+    }
+
     func fetchForumTags() async throws -> [ForumTagOption] {
         guard let url = URL(string: "\(AppConfig.vocPassAPIHost)/api/forum/tags") else {
             throw URLError(.badURL)

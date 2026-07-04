@@ -39,10 +39,19 @@ private enum ForumAuthorBadge {
     }
 }
 
+private enum ForumBetaState: Equatable {
+    case checking
+    case notLoggedIn
+    case notJoined
+    case joined
+    case failed(String)
+}
+
 struct ForumView: View {
     @EnvironmentObject var apiService: APIService
     @ObservedObject private var vocPassAuth = VocPassAuthService.shared
     @StateObject private var schoolConfigManager = SchoolConfigManager.shared
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var posts: [ForumPost] = []
     @State private var selectedScope: ForumScope = .currentSchool
@@ -62,6 +71,7 @@ struct ForumView: View {
     @State private var showSchoolVerification = false
     @State private var searchText = ""
     @State private var searchTask: Task<Void, Never>?
+    @State private var betaState: ForumBetaState = .checking
 
     private var selectedSchoolName: String? {
         schoolConfigManager.selectedSchool?.name
@@ -92,76 +102,29 @@ struct ForumView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                scopePicker
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(Color(.systemGroupedBackground))
-
-                Group {
-                    if isLoading && posts.isEmpty {
-                        ProgressView("載入中...")
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else if let errorMessage, posts.isEmpty {
-                        ContentUnavailableView {
-                            Label("載入失敗", systemImage: "exclamationmark.bubble")
-                        } description: {
-                            Text(errorMessage)
-                        } actions: {
-                            Button("重試") {
-                                Task { await load(reset: true) }
-                            }
-                            .buttonStyle(.borderedProminent)
-                        }
-                    } else {
-                        ScrollView {
-                            LazyVStack(spacing: 12) {
-                                if selectedScope == .currentSchool, let selectedSchoolName {
-                                    ForumSchoolAdminHeader(
-                                        schoolName: selectedSchoolName,
-                                        adminInfo: adminInfo,
-                                        isLoading: isLoadingAdminInfo,
-                                        applyURL: moderatorApplyURL(for: selectedSchoolName),
-                                        onShowVerification: { showSchoolVerification = true }
-                                    )
-                                }
-
-                                if posts.isEmpty {
-                                    ContentUnavailableView("目前沒有文章", systemImage: "bubble.left.and.text.bubble.right")
-                                        .padding(.vertical, 48)
-                                } else {
-                                    ForEach(posts) { post in
-                                        ForumPostRow(
-                                            post: post,
-                                            showPinned: selectedScope == .currentSchool,
-                                            canShowAdminTags: canShowAdminTags(for: post),
-                                            authorBadge: authorBadge(for: post.user, school: post.school, anonymous: post.anonymous),
-                                            onReport: { reportingContext = ReportContext(forumPostID: post.likeTargetID) }
-                                        )
-                                        .environmentObject(apiService)
-                                        .task {
-                                            await loadMoreIfNeeded(currentPost: post)
-                                        }
-                                    }
-
-                                    if isLoadingMore {
-                                        ProgressView()
-                                            .padding(.vertical, 12)
-                                    }
-                                }
-                            }
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 12)
-                        }
-                        .refreshable {
-                            await load(reset: true)
-                        }
+            Group {
+                switch betaState {
+                case .checking:
+                    ProgressView("檢查論壇資格中...")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .background(Color(.systemGroupedBackground))
+                case .notLoggedIn:
+                    ForumBetaGate(kind: .notLoggedIn) {
+                        showLogin = true
                     }
+                case .notJoined:
+                    ForumBetaGate(kind: .notJoined) {
+                        showLogin = true
+                    }
+                case .failed(let message):
+                    ForumBetaGate(kind: .failed(message)) {
+                        Task { await checkBetaStatus() }
+                    }
+                case .joined:
+                    forumContent
                 }
             }
             .navigationTitle("論壇")
-            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "搜尋文章")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     HStack(spacing: 14) {
@@ -169,69 +132,44 @@ struct ForumView: View {
                             Image(systemName: "doc.text")
                         }
 
-                        if vocPassAuth.isLoggedIn {
-                            Button {
-                                showCreatePost = true
-                            } label: {
-                                Image(systemName: "plus")
-                            }
-
-                            if let currentUser = vocPassAuth.currentUser {
-                                NavigationLink {
-                                    ForumUserPostsView(user: ForumUserSnapshot.from(currentUser))
-                                        .environmentObject(apiService)
+                        if betaState == .joined {
+                            if vocPassAuth.isLoggedIn {
+                                Button {
+                                    showCreatePost = true
                                 } label: {
-                                    ForumAvatar(user: ForumUserSnapshot.from(currentUser), anonymous: false, size: 30)
+                                    Image(systemName: "plus")
                                 }
-                            }
-                        } else {
-                            Button {
-                                showLogin = true
-                            } label: {
-                                Image(systemName: "person.badge.key")
+
+                                if let currentUser = vocPassAuth.currentUser {
+                                    NavigationLink {
+                                        ForumUserPostsView(user: ForumUserSnapshot.from(currentUser))
+                                            .environmentObject(apiService)
+                                    } label: {
+                                        ForumAvatar(user: ForumUserSnapshot.from(currentUser), anonymous: false, size: 30)
+                                    }
+                                }
+                            } else {
+                                Button {
+                                    showLogin = true
+                                } label: {
+                                    Image(systemName: "person.badge.key")
+                                }
                             }
                         }
                     }
                 }
             }
-            .onAppear {
-                if selectedSchoolName == nil {
-                    selectedScope = .all
+            .onChange(of: vocPassAuth.isLoggedIn) { _, _ in
+                Task { await checkBetaStatus() }
+            }
+            .onChange(of: scenePhase) { _, newPhase in
+                // 使用者可能在瀏覽器加入 Beta 後切回 App，回到前景時重新檢查
+                if newPhase == .active, betaState != .joined {
+                    Task { await checkBetaStatus() }
                 }
-            }
-            .onDisappear {
-                searchTask?.cancel()
-            }
-            .onChange(of: selectedScope) { _, _ in
-                searchTask?.cancel()
-                Task {
-                    await load(reset: true)
-                    await loadAdminInfoIfNeeded()
-                }
-            }
-            .onChange(of: selectedSchoolName) { _, newValue in
-                if newValue == nil {
-                    selectedScope = .all
-                }
-                searchTask?.cancel()
-                Task {
-                    await load(reset: true)
-                    await loadAdminInfoIfNeeded()
-                }
-            }
-            .onChange(of: searchText) { _, _ in
-                scheduleSearchReload()
-            }
-            .onSubmit(of: .search) {
-                searchTask?.cancel()
-                Task { await load(reset: true) }
             }
             .task {
-                if posts.isEmpty {
-                    await load(reset: true)
-                }
-                await loadAdminInfoIfNeeded()
-                await loadVocPassAdminInfoIfNeeded()
+                await checkBetaStatus()
             }
             .sheet(isPresented: $showLogin) {
                 VocPassLoginSheet()
@@ -260,6 +198,117 @@ struct ForumView: View {
         }
     }
 
+    private var forumContent: some View {
+        VStack(spacing: 0) {
+            scopePicker
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(Color(.systemGroupedBackground))
+
+            Group {
+                if isLoading && posts.isEmpty {
+                    ProgressView("載入中...")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if let errorMessage, posts.isEmpty {
+                    ContentUnavailableView {
+                        Label("載入失敗", systemImage: "exclamationmark.bubble")
+                    } description: {
+                        Text(errorMessage)
+                    } actions: {
+                        Button("重試") {
+                            Task { await load(reset: true) }
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: 12) {
+                            if selectedScope == .currentSchool, let selectedSchoolName {
+                                ForumSchoolAdminHeader(
+                                    schoolName: selectedSchoolName,
+                                    adminInfo: adminInfo,
+                                    isLoading: isLoadingAdminInfo,
+                                    applyURL: moderatorApplyURL(for: selectedSchoolName),
+                                    onShowVerification: { showSchoolVerification = true }
+                                )
+                            }
+
+                            if posts.isEmpty {
+                                ContentUnavailableView("目前沒有文章", systemImage: "bubble.left.and.text.bubble.right")
+                                    .padding(.vertical, 48)
+                            } else {
+                                ForEach(posts) { post in
+                                    ForumPostRow(
+                                        post: post,
+                                        showPinned: selectedScope == .currentSchool,
+                                        canShowAdminTags: canShowAdminTags(for: post),
+                                        authorBadge: authorBadge(for: post.user, school: post.school, anonymous: post.anonymous),
+                                        onReport: { reportingContext = ReportContext(forumPostID: post.likeTargetID) }
+                                    )
+                                    .environmentObject(apiService)
+                                    .task {
+                                        await loadMoreIfNeeded(currentPost: post)
+                                    }
+                                }
+
+                                if isLoadingMore {
+                                    ProgressView()
+                                        .padding(.vertical, 12)
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                    }
+                    .refreshable {
+                        await load(reset: true)
+                    }
+                    .background(Color(.systemGroupedBackground))
+                }
+            }
+        }
+        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "搜尋文章")
+        .onAppear {
+            if selectedSchoolName == nil {
+                selectedScope = .all
+            }
+        }
+        .onDisappear {
+            searchTask?.cancel()
+        }
+        .onChange(of: selectedScope) { _, _ in
+            searchTask?.cancel()
+            Task {
+                await load(reset: true)
+                await loadAdminInfoIfNeeded()
+            }
+        }
+        .onChange(of: selectedSchoolName) { _, newValue in
+            if newValue == nil {
+                selectedScope = .all
+            }
+            searchTask?.cancel()
+            Task {
+                await load(reset: true)
+                await loadAdminInfoIfNeeded()
+            }
+        }
+        .onChange(of: searchText) { _, _ in
+            scheduleSearchReload()
+        }
+        .onSubmit(of: .search) {
+            searchTask?.cancel()
+            Task { await load(reset: true) }
+        }
+        .task {
+            if posts.isEmpty {
+                await load(reset: true)
+            }
+            await loadAdminInfoIfNeeded()
+            await loadVocPassAdminInfoIfNeeded()
+        }
+    }
+
     private var scopePicker: some View {
         Picker("範圍", selection: $selectedScope) {
             ForEach(ForumScope.allCases) { scope in
@@ -268,6 +317,26 @@ struct ForumView: View {
         }
         .pickerStyle(.segmented)
         .disabled(selectedSchoolName == nil)
+    }
+
+    @MainActor
+    private func checkBetaStatus() async {
+        guard let userID = vocPassAuth.currentUser?.id, vocPassAuth.isLoggedIn else {
+            betaState = .notLoggedIn
+            return
+        }
+
+        // 已經是 joined 就不用重新顯示載入畫面
+        if betaState != .joined {
+            betaState = .checking
+        }
+
+        do {
+            let joined = try await apiService.checkForumBetaJoined(userID: userID)
+            betaState = joined ? .joined : .notJoined
+        } catch {
+            betaState = .failed(error.localizedDescription)
+        }
     }
 
     @MainActor
@@ -387,6 +456,99 @@ struct ForumView: View {
         var components = URLComponents(string: "\(AppConfig.vocPassAuthHost)/apply/admin")
         components?.queryItems = [URLQueryItem(name: "school", value: schoolName)]
         return components?.url ?? AppConfig.forumURL
+    }
+}
+
+private struct ForumBetaGate: View {
+    enum Kind: Equatable {
+        case notLoggedIn
+        case notJoined
+        case failed(String)
+    }
+
+    let kind: Kind
+    let onPrimaryAction: () -> Void
+
+    private var icon: String {
+        switch kind {
+        case .notLoggedIn: return "person.badge.key"
+        case .notJoined: return "sparkles"
+        case .failed: return "exclamationmark.triangle"
+        }
+    }
+
+    private var title: String {
+        switch kind {
+        case .notLoggedIn: return "登入以使用論壇"
+        case .notJoined: return "論壇 Beta 測試中"
+        case .failed: return "無法檢查論壇資格"
+        }
+    }
+
+    private var message: String {
+        switch kind {
+        case .notLoggedIn:
+            return "論壇目前為 Beta 功能，請先登入 VocPass 帳號。"
+        case .notJoined:
+            return "你尚未加入論壇 Beta。請先前往網頁版論壇加入 Beta，加入後即可在 App 內使用。"
+        case .failed(let detail):
+            return detail
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 20) {
+            Spacer()
+
+            Image(systemName: icon)
+                .font(.system(size: 46))
+                .foregroundStyle(.blue)
+
+            VStack(spacing: 8) {
+                Text(title)
+                    .font(.title3)
+                    .fontWeight(.semibold)
+
+                Text(message)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 32)
+            }
+
+            VStack(spacing: 12) {
+                switch kind {
+                case .notLoggedIn:
+                    Button(action: onPrimaryAction) {
+                        Text("登入")
+                            .fontWeight(.semibold)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+
+                case .notJoined:
+                    Link(destination: URL(string: "\(AppConfig.vocPassAPIHost)/forum")!) {
+                        Label("前往加入 Beta", systemImage: "arrow.up.forward.app")
+                            .fontWeight(.semibold)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+
+                case .failed:
+                    Button(action: onPrimaryAction) {
+                        Text("重試")
+                            .fontWeight(.semibold)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            }
+            .padding(.horizontal, 40)
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(.systemGroupedBackground))
     }
 }
 
