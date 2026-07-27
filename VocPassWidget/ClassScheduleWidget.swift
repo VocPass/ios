@@ -209,44 +209,22 @@ private struct ExpandedLeadingView: View {
 
     var body: some View {
         let s = resolveScheduleState(from: context)
-        VStack(alignment: .leading, spacing: 2) {
-            if s.currentSubject.isEmpty {
-                Label("下課中", systemImage: "cup.and.heat.waves.fill")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                if let nextStart = s.nextStartTime {
-                    HStack(spacing: 2) {
-                        Image(systemName: "timer")
-                            .font(.system(size: 9))
-                        Text(nextStart, style: .timer)
-                            .font(.system(size: 11))
-                            .monospacedDigit()
-                    }
-                    .foregroundStyle(.green)
-                }
-            } else {
-                Label {
-                    Text("VocPass")
-                        .font(.caption)
-                        .fontWeight(.semibold)
-                        .lineLimit(1)
-                } icon: {
-                    Image(systemName: "book.fill")
-                        .foregroundStyle(.blue)
-                }
-                if let endTime = s.currentEndTime {
-                    HStack(spacing: 2) {
-                        Image(systemName: "timer")
-                            .font(.system(size: 9))
-                        Text(endTime, style: .timer)
-                            .font(.system(size: 11))
-                            .monospacedDigit()
-                    }
-                    .foregroundStyle(.orange)
+        let inClass = !s.currentSubject.isEmpty
+        HStack(spacing: 7) {
+            Image(systemName: inClass ? "book.fill" : "cup.and.heat.waves.fill")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(inClass ? Color.blue : Color.orange)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(inClass ? "上課中" : "下課中")
+                    .font(.system(size: 13, weight: .bold))
+                if inClass, !s.currentPeriod.isEmpty {
+                    Text("第\(s.currentPeriod)節")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
                 }
             }
         }
-        .padding(.leading, 4)
+        .padding(.leading, 6)
     }
 }
 
@@ -255,34 +233,30 @@ private struct ExpandedTrailingView: View {
 
     var body: some View {
         let s = resolveScheduleState(from: context)
-        VStack(alignment: .trailing, spacing: 2) {
-            if s.nextSubject.isEmpty {
-                Text("放學囉！")
-                    .font(.caption)
+        VStack(alignment: .trailing, spacing: 1) {
+            if let end = s.currentEndTime {
+                Text("距下課")
+                    .font(.system(size: 10))
                     .foregroundStyle(.secondary)
+                Text(end, style: .timer)
+                    .font(.system(size: 19, weight: .bold).monospacedDigit())
+                    .foregroundStyle(.orange)
+                    .frame(maxWidth: 74, alignment: .trailing)
+            } else if let nextStart = s.nextStartTime {
+                Text("距上課")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                Text(nextStart, style: .timer)
+                    .font(.system(size: 19, weight: .bold).monospacedDigit())
+                    .foregroundStyle(.green)
+                    .frame(maxWidth: 74, alignment: .trailing)
             } else {
-                Text("→ 下一堂")
-                    .font(.system(size: 9))
+                Text("放學囉")
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.secondary)
-                Text(s.nextSubject)
-                    .font(.caption)
-                    .fontWeight(.semibold)
-                    .lineLimit(1)
-                let nextMeta = [s.nextRoom, s.nextTeacher].filter { !$0.isEmpty }.joined(separator: "・")
-                if !nextMeta.isEmpty {
-                    Text(nextMeta)
-                        .font(.system(size: 9))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                if let startTime = s.nextStartTime {
-                    Text(startTime, style: .time)
-                        .font(.system(size: 10))
-                        .foregroundStyle(.green)
-                }
             }
         }
-        .padding(.trailing, 4)
+        .padding(.trailing, 6)
     }
 }
 
@@ -291,31 +265,98 @@ private struct ExpandedBottomView: View {
 
     var body: some View {
         let s = resolveScheduleState(from: context)
-        if !s.currentSubject.isEmpty,
-           let endTime = s.currentEndTime {
-            HStack {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("第\(s.currentPeriod)節  \(s.currentSubject)")
-                        .font(.caption)
-                        .fontWeight(.medium)
-                    let meta = [s.currentRoom, s.currentTeacher].filter { !$0.isEmpty }.joined(separator: "・")
-                    if !meta.isEmpty {
-                        Text(meta)
-                            .font(.system(size: 9))
-                            .foregroundStyle(.secondary)
+        VStack(spacing: 7) {
+            if !s.currentSubject.isEmpty {
+                // 當節課（主角）：大科目名 + 進度條
+                HStack(alignment: .top, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(s.currentSubject)
+                            .font(.system(size: 23, weight: .bold))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.6)
+                        let meta = [s.currentRoom, s.currentTeacher]
+                            .filter { !$0.isEmpty }.joined(separator: " · ")
+                        if !meta.isEmpty {
+                            Text(meta)
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                    Spacer(minLength: 4)
+                    if !s.nextSubject.isEmpty {
+                        VStack(alignment: .trailing, spacing: 1) {
+                            Text("下一堂")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                            Text(s.nextSubject)
+                                .font(.system(size: 13, weight: .semibold))
+                                .lineLimit(1)
+                            if let ns = s.nextStartTime {
+                                Text(ns, style: .time)
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.green)
+                            }
+                        }
                     }
                 }
-                Spacer()
-                Text(endTime, style: .time)
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-                Text("下課")
-                    .font(.caption2)
+                if let start = s.currentStartTime, let end = s.currentEndTime {
+                    VStack(spacing: 3) {
+                        ProgressView(timerInterval: start...end, countsDown: false) {
+                            EmptyView()
+                        } currentValueLabel: {
+                            EmptyView()
+                        }
+                        .progressViewStyle(.linear)
+                        .tint(.orange)
+                        HStack {
+                            Text(start, style: .time)
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Text(end, style: .time)
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            } else if !s.nextSubject.isEmpty {
+                // 下課中：預告下一堂
+                HStack(spacing: 10) {
+                    Image(systemName: "clock.badge.checkmark.fill")
+                        .font(.system(size: 20))
+                        .foregroundStyle(.green)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("即將上課 · \(s.nextSubject)")
+                            .font(.system(size: 17, weight: .bold))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                        let meta = [s.nextRoom, s.nextTeacher]
+                            .filter { !$0.isEmpty }.joined(separator: " · ")
+                        if !meta.isEmpty {
+                            Text(meta)
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                    Spacer(minLength: 4)
+                    if let ns = s.nextStartTime {
+                        Text(ns, style: .time)
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(.green)
+                    }
+                }
+            } else {
+                Text("今日課程已結束 🎉")
+                    .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity)
             }
-            .padding(.horizontal, 8)
-            .padding(.bottom, 6)
         }
+        .padding(.horizontal, 10)
+        .padding(.top, 2)
+        .padding(.bottom, 6)
     }
 }
 
@@ -362,22 +403,12 @@ private struct MinimalView: View {
 
     var body: some View {
         let s = resolveScheduleState(from: context)
-        if let start = s.currentStartTime,
-           let end   = s.currentEndTime {
-            let total   = end.timeIntervalSince(start)
-            let elapsed = min(max(Date().timeIntervalSince(start), 0), total)
-            let pct     = total > 0 ? elapsed / total : 0.0
-            Gauge(value: pct) {
-            } currentValueLabel: {
-                Image(systemName: "book.fill")
-                    .font(.system(size: 7, weight: .semibold))
-                    .foregroundStyle(Color.blue)
-            }
-            .gaugeStyle(.accessoryCircularCapacity)
-            .tint(Color.orange)
-            .scaleEffect(0.7)
+        if s.currentStartTime != nil, s.currentEndTime != nil {
+            Image(systemName: "book.fill")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color.blue)
         } else {
-                        Image(systemName: s.nextSubject.isEmpty
+            Image(systemName: s.nextSubject.isEmpty
                   ? "checkmark.circle" : "cup.and.heat.waves.fill")
                 .font(.system(size: 11))
                 .foregroundStyle(Color.secondary)
