@@ -348,7 +348,7 @@ private struct ExpandedBottomView: View {
                     }
                 }
             } else {
-                Text("今日課程已結束 🎉")
+                Text("今日課程已結束")
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity)
