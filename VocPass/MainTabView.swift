@@ -338,6 +338,28 @@ struct SchoolAffairsView: View {
                                 Label("考試成績", systemImage: "list.bullet.clipboard")
                             }
                             .disabled(!apiService.isLoggedIn)
+                            NavigationLink(destination: DataExportView().environmentObject(apiService)) {
+                                Label("資料匯出", systemImage: "square.and.arrow.down")
+                            }
+                            .disabled(!apiService.isLoggedIn)
+                        }
+
+                        if let indexURL = schoolConfigManager.selectedSchool?.indexURL,
+                           let school = schoolConfigManager.selectedSchool {
+                            Section {
+                                NavigationLink(
+                                    destination: OriginalSystemView(
+                                        school: school,
+                                        url: indexURL,
+                                        cookies: apiService.cookies
+                                    )
+                                ) {
+                                    Label("前往原系統", systemImage: "safari")
+                                }
+                                .disabled(!apiService.isLoggedIn)
+                            } footer: {
+                                Text("以登入後的狀態開啟學校原本的網頁系統。")
+                            }
                         }
                     }
                 }

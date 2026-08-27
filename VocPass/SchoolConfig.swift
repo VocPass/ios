@@ -98,6 +98,15 @@ struct SchoolConfig: Codable, Identifiable {
         api + url.root
     }
 
+    /// 原系統首頁完整網址（若學校有設定 url.index）
+    var indexURL: URL? {
+        guard let index = url.index, !index.isEmpty else { return nil }
+        if index.hasPrefix("http://") || index.hasPrefix("https://") {
+            return URL(string: index)
+        }
+        return URL(string: api + index)
+    }
+
     var isGuest: Bool {
         api == SchoolConfig.guestAPIMarker
     }
@@ -135,6 +144,29 @@ struct URLConfig: Codable {
     let login: String
     let logined: String
     let root: String
+    /// 原系統首頁（登入後可帶 cookie 開啟）。並非所有學校都有設定。
+    let index: String?
+
+    init(login: String, logined: String, root: String, index: String? = nil) {
+        self.login = login
+        self.logined = logined
+        self.root = root
+        self.index = index
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        login = try container.decode(String.self, forKey: .login)
+        logined = try container.decode(String.self, forKey: .logined)
+        root = try container.decode(String.self, forKey: .root)
+        let rawIndex = try container.decodeIfPresent(String.self, forKey: .index)
+        let trimmedIndex = rawIndex?.trimmingCharacters(in: .whitespacesAndNewlines)
+        index = (trimmedIndex?.isEmpty ?? true) ? nil : trimmedIndex
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case login, logined, root, index
+    }
 }
 
 struct LoginConfig: Codable {
