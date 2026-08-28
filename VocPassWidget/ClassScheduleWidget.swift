@@ -117,84 +117,137 @@ private struct ClassScheduleLockScreenBanner: View {
 
     var body: some View {
         let s = resolveScheduleState(from: context)
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Label {
-                    Text(s.currentSubject.isEmpty ? "下課中" : s.currentSubject)
-                        .font(.headline)
-                        .lineLimit(1)
-                } icon: {
-                    Image(systemName: "book.closed.fill")
-                        .foregroundStyle(.blue)
-                }
-                if !s.currentPeriod.isEmpty {
-                    let meta = [s.currentPeriod.isEmpty ? "" : "第\(s.currentPeriod)節",
-                                s.currentRoom, s.currentTeacher]
-                        .filter { !$0.isEmpty }.joined(separator: "・")
-                    Text(meta)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                if let endTime = s.currentEndTime {
-                    HStack(spacing: 2) {
-                        Image(systemName: "timer")
-                            .font(.caption2)
-                        Text(endTime, style: .timer)
-                            .font(.caption)
-                            .monospacedDigit()
-                        Text("後下課")
-                            .font(.caption)
+        let inClass = !s.currentSubject.isEmpty
+        VStack(spacing: 9) {
+            // 狀態列：對應 Dynamic Island 的 leading + trailing
+            HStack(spacing: 7) {
+                Image(systemName: inClass ? "book.fill" : "cup.and.heat.waves.fill")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(inClass ? Color.blue : Color.orange)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(inClass ? "上課中" : "下課中")
+                        .font(.system(size: 13, weight: .bold))
+                    if inClass, !s.currentPeriod.isEmpty {
+                        Text("第\(s.currentPeriod)節")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
                     }
-                    .foregroundStyle(.orange)
+                }
+
+                Spacer(minLength: 4)
+
+                if let end = s.currentEndTime {
+                    VStack(alignment: .trailing, spacing: 1) {
+                        Text("距下課")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                        Text(end, style: .timer)
+                            .font(.system(size: 19, weight: .bold).monospacedDigit())
+                            .foregroundStyle(.orange)
+                            .frame(maxWidth: 74, alignment: .trailing)
+                    }
                 } else if let nextStart = s.nextStartTime {
-                    HStack(spacing: 2) {
-                        Image(systemName: "hourglass")
-                            .font(.caption2)
+                    VStack(alignment: .trailing, spacing: 1) {
+                        Text("距上課")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
                         Text(nextStart, style: .timer)
-                            .font(.caption)
-                            .monospacedDigit()
-                        Text("後上課")
-                            .font(.caption)
+                            .font(.system(size: 19, weight: .bold).monospacedDigit())
+                            .foregroundStyle(.green)
+                            .frame(maxWidth: 74, alignment: .trailing)
                     }
-                    .foregroundStyle(.green)
+                } else {
+                    Text("放學囉")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.secondary)
                 }
             }
 
-            Spacer()
-
-            if !s.nextSubject.isEmpty {
-                Divider().frame(height: 44)
-
-                VStack(alignment: .trailing, spacing: 3) {
-                    Text("下一堂")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    Text(s.nextSubject)
-                        .font(.subheadline)
-                        .fontWeight(.medium)
-                        .lineLimit(1)
-                    let nextMeta = [s.nextRoom, s.nextTeacher].filter { !$0.isEmpty }.joined(separator: "・")
-                    if !nextMeta.isEmpty {
-                        Text(nextMeta)
-                            .font(.system(size: 10))
-                            .foregroundStyle(.secondary)
+            // 內容列：對應 Dynamic Island 的 bottom
+            if inClass {
+                HStack(alignment: .top, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(s.currentSubject)
+                            .font(.system(size: 23, weight: .bold))
                             .lineLimit(1)
+                            .minimumScaleFactor(0.6)
+                        let meta = [s.currentRoom, s.currentTeacher]
+                            .filter { !$0.isEmpty }.joined(separator: " · ")
+                        if !meta.isEmpty {
+                            Text(meta)
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
                     }
-                    if let startTime = s.nextStartTime {
-                        Text(startTime, style: .time)
-                            .font(.caption)
+                    Spacer(minLength: 4)
+                    if !s.nextSubject.isEmpty {
+                        VStack(alignment: .trailing, spacing: 1) {
+                            Text("下一堂")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                            Text(s.nextSubject)
+                                .font(.system(size: 13, weight: .semibold))
+                                .lineLimit(1)
+                            if let ns = s.nextStartTime {
+                                Text(ns, style: .time)
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.green)
+                            }
+                        }
+                    }
+                }
+                if let start = s.currentStartTime, let end = s.currentEndTime {
+                    VStack(spacing: 3) {
+                        ProgressView(timerInterval: start...end, countsDown: false) {
+                            EmptyView()
+                        } currentValueLabel: {
+                            EmptyView()
+                        }
+                        .progressViewStyle(.linear)
+                        .tint(.orange)
+                        HStack {
+                            Text(start, style: .time)
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Text(end, style: .time)
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            } else if !s.nextSubject.isEmpty {
+                HStack(spacing: 10) {
+                    Image(systemName: "clock.badge.checkmark.fill")
+                        .font(.system(size: 20))
+                        .foregroundStyle(.green)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("即將上課 · \(s.nextSubject)")
+                            .font(.system(size: 17, weight: .bold))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                        let meta = [s.nextRoom, s.nextTeacher]
+                            .filter { !$0.isEmpty }.joined(separator: " · ")
+                        if !meta.isEmpty {
+                            Text(meta)
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                    Spacer(minLength: 4)
+                    if let ns = s.nextStartTime {
+                        Text(ns, style: .time)
+                            .font(.system(size: 16, weight: .bold))
                             .foregroundStyle(.green)
                     }
                 }
             } else {
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text("今日課程")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    Text("已結束")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
+                Text("今日課程已結束")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity)
             }
         }
         .padding(.horizontal, 16)

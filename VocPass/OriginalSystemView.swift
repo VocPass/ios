@@ -12,9 +12,9 @@ import WebKit
 struct OriginalSystemView: View {
     let school: SchoolConfig
     let url: URL
+    /// 由呼叫端提供目前登入的 cookie（例如 apiService.cookies）。
     let cookies: [HTTPCookie]
 
-    @Environment(\.dismiss) private var dismiss
     @State private var isLoading = true
 
     var body: some View {
@@ -22,7 +22,7 @@ struct OriginalSystemView: View {
             OriginalSystemWebView(
                 url: url,
                 school: school,
-                cookies: cookies,
+                cookies: resolvedCookies,
                 isLoading: $isLoading
             )
             .ignoresSafeArea(edges: .bottom)
@@ -35,6 +35,12 @@ struct OriginalSystemView: View {
         }
         .navigationTitle("原系統")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    /// 若呼叫端傳入的 cookie 為空（例如 SwiftUI 在導覽前就先建立了目的地、
+    /// 快照到尚未載入的狀態），改用已持久化的 cookie 作為後備。
+    private var resolvedCookies: [HTTPCookie] {
+        cookies.isEmpty ? CacheService.shared.loadCookies() : cookies
     }
 }
 
@@ -82,13 +88,19 @@ private struct OriginalSystemWebView: UIViewRepresentable {
 
             let cookieStore = webView.configuration.websiteDataStore.httpCookieStore
             let group = DispatchGroup()
+            print("🍪 [原系統] 準備注入 \(parent.cookies.count) 個 cookie 至 \(parent.url.host ?? "?")")
             for cookie in parent.cookies {
+                print("  - \(cookie.name)=\(cookie.value.prefix(20)) domain=\(cookie.domain) path=\(cookie.path)")
                 group.enter()
                 cookieStore.setCookie(cookie) { group.leave() }
             }
 
             let url = parent.url
             let school = parent.school
+            // WKHTTPCookieStore 注入的 cookie 有時不會被套用到「第一個」導覽請求
+            // （cookie 尚未同步到網路程序）。因此同時把 cookie 放進頂層請求的
+            // Cookie header，確保伺服器第一次就能取得 session。
+            let cookieHeader = Self.cookieHeader(for: parent.cookies)
             group.notify(queue: .main) { [weak webView] in
                 Task { [weak webView] in
                     let userAgent = await Self.fetchUserAgent(for: school)
@@ -97,10 +109,25 @@ private struct OriginalSystemWebView: UIViewRepresentable {
                         if let userAgent, !userAgent.isEmpty {
                             webView.customUserAgent = userAgent
                         }
-                        webView.load(URLRequest(url: url))
+                        var request = URLRequest(url: url)
+                        request.httpShouldHandleCookies = true
+                        if !cookieHeader.isEmpty {
+                            request.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
+                        }
+                        webView.load(request)
                     }
                 }
             }
+        }
+
+        /// 依 API 相同的規則組出 Cookie header：非 ASCII 值（如中文）需 percent-encode，
+        /// 否則伺服器解析到非 ASCII 字元時會截斷，導致後續 session cookie 遺失。
+        private static func cookieHeader(for cookies: [HTTPCookie]) -> String {
+            let allowed = CharacterSet.urlQueryAllowed.subtracting(CharacterSet(charactersIn: ";, "))
+            return cookies.map { cookie in
+                let encoded = cookie.value.addingPercentEncoding(withAllowedCharacters: allowed) ?? cookie.value
+                return "\(cookie.name)=\(encoded)"
+            }.joined(separator: "; ")
         }
 
         private static func fetchUserAgent(for school: SchoolConfig) async -> String? {
